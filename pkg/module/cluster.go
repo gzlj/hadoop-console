@@ -1,42 +1,43 @@
 package module
 
-import "time"
-
 type ClusterRuntimeInfo struct {
-	ClusterName string   `json:"clusterName"`
-	Nodes []ClusterNodeInfo `json:"nodes"`
+	ClusterName string            `json:"clusterName"`
+	Nodes       []ClusterNodeInfo `json:"nodes"`
 }
 
 type ClusterNodeInfo struct {
-	//Hostname string   `json:"hostname"`
-	//Ip string   `json:"ip"`
+
+	NodeRole
+	State             string   `json:"state"`
+	RunningComponents []string `json:"runningComponents"`
+	LastKnown         Time     `json:"lastKnown"`
+}
+
+
+type ClusterConfig struct {
+	ClusterName string     `json:"clusterName"`
+	Nodes       []NodeRole `json:"nodes"`
+	Password    string     `json:"password"`
+}
+
+type HostnameIp struct {
+	Hostname string `json:"hostname"`
+	Ip       string `json:"ip"`
+}
+
+type NodeRole struct {
 	HostnameIp
-	State string   `json:"state"`
-	RunningComponents []string `json:"runningComponents"`
-	LastKnown time.Time `json:"lastKnown"`
+	Roles []string `json:"roles"`
 }
 
-/*
+type NodeStatus struct {
+	Hostname  string `json:"hostname"`
+	State     string `json:"state"`
+	LastKnown Time   `json:"lastKnown"`
+}
 
-type ClusteredComponentStatuses struct {
-	ClusterName string   `json:"clusterName"`
-	Host string   `json:"host"`
+type NodeHeartBeat struct {
+	Cluster  string `json:"cluster"`
+	Hostname  string `json:"hostname"`
 	RunningComponents []string `json:"runningComponents"`
 }
- */
-
- type ClusterConfig struct {
-	ClusterName string   `json:"clusterName"`
-	Nodes []NodeRole  `json:"nodes"`
-	Password string `json:"password"`
- }
-
- type HostnameIp struct {
-	 Hostname string   `json:"hostname"`
-	 Ip string   `json:"ip"`
- }
-
- type NodeRole struct {
-	 HostnameIp
-	 Roles []string `json:"roles"`
- }
