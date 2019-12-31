@@ -8,6 +8,7 @@ import (
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
 	"os"
 	"runtime"
+	"strconv"
 )
 
 type APIServer struct {
@@ -49,8 +50,15 @@ func init() {
 		mysqlPassword="root_password"
 	}
 
-	//hostname , _ := infra.GetHostName()
-	global.InitConfig(serverPort, mysqlHost, mysqlPort, mysqlUser, mysqlPassword)
+	syncToDbSecondsStr := os.Getenv("MYSQL_PASSWORD")
+	if syncToDbSecondsStr == ""{
+		syncToDbSecondsStr="300"
+	}
+	syncToDbSeconds, err :=strconv.Atoi(syncToDbSecondsStr)
+	if err != nil {
+		syncToDbSeconds = 300
+	}
+	global.InitConfig(serverPort, mysqlHost, mysqlPort, mysqlUser, mysqlPassword, syncToDbSeconds)
 	db.InitDb()
 	cluster.SyncClusterFromDb()
 }
@@ -60,15 +68,11 @@ func (s *APIServer) registryApi() {
 }
 
 func registryBasicApis(r *gin.Engine) {
-	//r.POST("", handler.HandleHeartBeat)
 	r.GET("/status", handler.HandlerGetClusterInfo)
-	//HandlerCreateCluster
 	r.POST("/clusters", handler.HandlerCreateCluster)
 	r.GET("/clusters", handler.HandlerListCluster)
-	//HandlerUpdateStatus
-	r.GET("/updatestatus", handler.HandlerUpdateStatus)
-	//HandlerHeartBeat
 	r.POST("/heartbeat", handler.HandlerHeartBeat)
+
 }
 
 func main() {
@@ -77,7 +81,8 @@ func main() {
 		port: global.G_config.ServerPort,
 	}
 	go cluster.SyncFromHeartBeat()
-
+	go cluster.SyncClusterStatusToDbLoop()
+	go cluster.CalculateNodeStatusLoop()
 	server.registryApi()
 	server.Run()
 }

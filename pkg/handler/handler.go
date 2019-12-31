@@ -6,7 +6,6 @@ import (
 	"github.com/gzlj/hadoop-console/pkg/infra/cluster"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
 	"github.com/gzlj/hadoop-console/pkg/module"
-	"time"
 )
 
 func HandleHeartBeat(c *gin.Context) {
@@ -67,7 +66,7 @@ func HandlerCreateCluster(c *gin.Context) {
 	}
 
 	if err = db.ADDCluster(&cluster); err != nil {
-		response = global.BuildResponse(500, "Cannot create like in db.", nil)
+		response = global.BuildResponse(500, "Cannot create cluster in db: " + err.Error(), nil)
 		//c.JSON(500, "cannot create like in db.")
 	}
 	c.JSON(200,response)
@@ -100,7 +99,7 @@ func HandlerListCluster(c *gin.Context) {
 
 }
 
-func HandlerUpdateStatus(c *gin.Context) {
+/*func HandlerUpdateStatus(c *gin.Context) {
 	var (
 		nss []*module.NodeStatus
 		//err error
@@ -113,7 +112,7 @@ func HandlerUpdateStatus(c *gin.Context) {
 	})
 	_ = db.UpdateStatus(1, nss)
 	c.JSON(200,nil)
-}
+}*/
 
 func HandlerHeartBeat(c *gin.Context) {
 	var (

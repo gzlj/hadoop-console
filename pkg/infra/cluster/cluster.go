@@ -1,11 +1,15 @@
 package cluster
 
 import (
+	"encoding/json"
+	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
+	"github.com/gzlj/hadoop-console/pkg/infra/job"
 	"github.com/gzlj/hadoop-console/pkg/module"
 	"log"
-	"encoding/json"
+	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -16,21 +20,46 @@ var (
 
 
 
-func CheckNodeLoop() {
+
+// sync cluster status from memory to db periodly
+func SyncClusterStatusToDbLoop() {
 
 	timer1 := time.NewTimer(30 * time.Second)
 	for {
 		select {
 		case <-timer1.C:
-			checkNodeAlive()
+			syncClusterStatusToDb()
 			timer1.Reset(30 * time.Second)
 		}
 	}
 
 }
 
-func checkNodeAlive() {
+func syncClusterStatusToDb() {
+	var (
+		info module.ClusterRuntimeInfo
+		cluster string
+	)
 
+	for _, info = range ClusterRuntimeInfos {
+		var(
+			nss      []*module.NodeStatus
+			nodeInfo module.ClusterNodeInfo
+			err error
+		)
+		cluster = info.ClusterName
+		for _, nodeInfo = range info.Nodes {
+			nss = append(nss, &module.NodeStatus{
+				Hostname:  nodeInfo.Hostname,
+				State:     nodeInfo.State,
+				LastKnown: module.Time(nodeInfo.LastKnown),
+			})
+		}
+		err = db.UpdateStatusByName(cluster, nss)
+		if err != nil {
+			log.Println("Failed to sync cluster status to db: ", err)
+		}
+	}
 }
 
 
@@ -80,6 +109,20 @@ func SyncClusterFromDb() (err error){
 				State: "Unknown",
 			})
 		}
+		var nss []*module.NodeStatus
+		err = json.Unmarshal([]byte(c.Status), &nss)
+		if err == nil {
+			for _, ns := range nss {
+				for i, _ := range infos {
+					if infos[i].Hostname == ns.Hostname {
+						//infos[i].State = ns.State
+						infos[i].LastKnown = ns.LastKnown
+					}
+				}
+			}
+		} else {
+			log.Println("Failed to Unmarshal cluster status when sync from db: ", err)
+		}
 		ClusterRuntimeInfos[c.Name] = module.ClusterRuntimeInfo{
 			ClusterName: c.Name,
 			Nodes: infos,
@@ -109,6 +152,87 @@ func syncFromHeartBeat(hb module.NodeHeartBeat) {
 		}
 	}
 }
+
+func CalculateNodeStatus() {
+	var (
+		cluster string
+		info module.ClusterRuntimeInfo
+		nodes       []module.ClusterNodeInfo
+	)
+
+	for cluster, info = range ClusterRuntimeInfos {
+		nodes = info.Nodes
+		var findUnknownNode = false
+		for i := range nodes {
+			//log.Println("tim gap: ", time.Now().Sub(time.Time(nodes[i].LastKnown)).Seconds())
+			if time.Now().Sub(time.Time(nodes[i].LastKnown)).Seconds() >120 {
+				log.Println(nodes[i].LastKnown)
+				log.Println("Find unknown node: ", nodes[i].Hostname)
+				nodes[i].State = "Unknown"
+				findUnknownNode = true
+			}
+		}
+		if findUnknownNode {
+			ClusterRuntimeInfos[cluster] = info
+		}
+	}
+}
+
+func CalculateNodeStatusLoop() {
+	timer1 := time.NewTimer(15 * time.Second)
+	for {
+		select {
+		case <-timer1.C:
+			CalculateNodeStatus()
+			timer1.Reset(15 * time.Second)
+		}
+	}
+}
+
+func StartInitHdfs(dto db.ClusterDto) {
+	var (
+		config db.ClusterConfig = dto.Config
+		jobName string
+		filesAndCmds module.TaskFilesAndCmds
+		err error
+		lines []string
+		f *os.File
+		//cancelCtx, _ = context.WithCancel(context.TODO())
+	)
+	jobName = dto.Name+"hdfs"
+	//hdfs task  is created
+	global.G_JobExcutingInfo[jobName]="created"
+	defer delete(global.G_JobExcutingInfo, jobName)
+	job.CreateStatusFile(jobName)
+
+	filesAndCmds = job.ConstructFilesAndCmd(jobName)
+
+
+	// config --> lines --> target-hosts/jobname.hosts
+	f, err = os.OpenFile(filesAndCmds.HostsFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	defer f.Close()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	lines, err = job.GenerateHostFileContent(config)
+	if err != nil {
+		log.Println("GenerateHostFileContent failed.")
+		return
+	}
+	f.WriteString(strings.Join(lines, "\r\n"))
+
+
+
+
+	//hdfs task  is created
+}
+
+
+
+
+
+
 
 
 

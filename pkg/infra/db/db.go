@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/module"
+	"errors"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
 	"log"
@@ -30,11 +31,16 @@ func InitDb() {
 }
 
 func ADDCluster(like *Cluster) error {
+
+	where := G_db.Where("name = ? AND removed = ?", like.Name, 0)
+	if where.Error == nil {
+		return errors.New("Cluster already exists: "+  like.Name)
+	}
 	if err := G_db.Create(like).Error; err != nil {
-		log.Fatal(err)
+		//log.Fatal(err)
 		return err
 	}
-	log.Print("insert record successully.")
+	log.Print("Create cluster successully:", like.Name)
 	return nil
 }
 
@@ -64,6 +70,21 @@ func UpdateStatus(id uint, nss []*module.NodeStatus) (err error){
 	}
 	update := G_db.Model(Cluster{}).Where("id = ?", id).Update("status", bytes)
 	err = update.Error
-	log.Println("UpdateStatus error: ", err)
+	log.Println("Errors happened when update cluster Status in db:", err)
+	return
+}
+
+func UpdateStatusByName(cluster string, nss []*module.NodeStatus) (err error){
+	var (
+		bytes []byte
+	)
+	bytes, err = json.Marshal(nss)
+	if err != nil {
+		//log.Println("Failed to Marshal NodeStatus: ", err.Error())
+		return
+	}
+	update := G_db.Model(Cluster{}).Where("name = ?", cluster).Update("status", bytes)
+	err = update.Error
+	//log.Println("UpdateStatus error: ", err)
 	return
 }

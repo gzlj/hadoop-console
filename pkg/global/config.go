@@ -6,6 +6,7 @@ type Config struct {
 	MysqlPort string   `json:"mysqlPort"`
 	MysqlUser string   `json:"mysqlUser"`
 	MysqlPassword string   `json:"mysqlPassword"`
+	SyncToDbSeconds int `json:"syncToDbSeconds"`
 }
 
 var (
@@ -14,7 +15,7 @@ var (
 )
 
 
-func InitConfig(serverPort, mysqlHost, mysqlPort, mysqlUser, mysqlPassword  string) (err error) {
+func InitConfig(serverPort, mysqlHost, mysqlPort, mysqlUser, mysqlPassword  string, syncToDbSeconds int) (err error) {
 
 	conf := Config{
 		ServerPort: serverPort,
@@ -22,6 +23,7 @@ func InitConfig(serverPort, mysqlHost, mysqlPort, mysqlUser, mysqlPassword  stri
 		MysqlPort: mysqlPort,
 		MysqlUser: mysqlUser,
 		MysqlPassword: mysqlPassword,
+		SyncToDbSeconds: syncToDbSeconds,
 	}
 	G_config = &conf
 	return
