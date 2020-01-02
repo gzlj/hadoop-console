@@ -5,7 +5,9 @@ import (
 	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/infra/cluster"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
+	"github.com/gzlj/hadoop-console/pkg/infra/job"
 	"github.com/gzlj/hadoop-console/pkg/module"
+	"log"
 )
 
 func HandleHeartBeat(c *gin.Context) {
@@ -128,6 +130,55 @@ func HandlerHeartBeat(c *gin.Context) {
 	cluster.HbChan <- hb
 	response = global.BuildResponse(200, "OK.", nil)
 	c.JSON(200, response)
+}
+
+//InitHdfs
+func HandlerInitHdfs(c *gin.Context) {
+	var (
+		dto db.ClusterDto
+		err error
+		//cluster db.Cluster
+		response global.Response
+	)
+	if err = c.ShouldBindJSON(&dto); err != nil {
+		response = global.BuildResponse(400, "Requet body is not correct.", nil)
+		c.JSON(200, response)
+		return
+	}
+
+	_, ok := global.G_JobExcutingInfo[dto.Name+"hdfs"]
+	if ok {
+		response = global.BuildResponse(400, "Job is already Running.Please wait to complete.", nil)
+		c.JSON(200, response)
+		return
+	}
+	go cluster.StartInitHdfs(dto)
+
+	//cluster.HbChan <- hb
+	response = global.BuildResponse(200, "OK.", nil)
+	c.JSON(200, response)
+}
+
+func QueryJobLog(c *gin.Context) {
+	var (
+		response global.Response
+	)
+	log.Println("QueryJobLog response:", response)
+	cluster := c.Query("cluster")
+	if cluster == "" {
+		response = global.BuildResponse(400, "Please specify cluster name.", nil)
+		c.JSON(200, response)
+		return
+	}
+	class := c.Query("class")
+	if class == "" {
+		response = global.BuildResponse(400, "Please specify component class name.", nil)
+		c.JSON(200, response)
+		return
+	}
+	//job name
+	jobName := cluster + "-" + class
+	c.String(200, job.QueryJobLogByName(jobName))
 }
 
 

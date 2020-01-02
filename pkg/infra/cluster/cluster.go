@@ -1,13 +1,17 @@
 package cluster
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
 	"github.com/gzlj/hadoop-console/pkg/infra/job"
+	"github.com/gzlj/hadoop-console/pkg/infra/util"
 	"github.com/gzlj/hadoop-console/pkg/module"
+	"io"
 	"log"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -197,25 +201,37 @@ func StartInitHdfs(dto db.ClusterDto) {
 		err error
 		lines []string
 		f *os.File
-		//cancelCtx, _ = context.WithCancel(context.TODO())
+		allHosts []string
+		n module.NodeRole
+		status module.Status
+		cancelCtx, _ = context.WithCancel(context.TODO())
+		cmdStdoutPipe io.ReadCloser
+		cmdStderrPipe io.ReadCloser
+		cmd           *exec.Cmd
 	)
-	jobName = dto.Name+"hdfs"
+	jobName = dto.Name +"-hdfs"
+
 	//hdfs task  is created
 	global.G_JobExcutingInfo[jobName]="created"
 	defer delete(global.G_JobExcutingInfo, jobName)
+	log.Println("Job " + jobName + " is initializing")
+	status = module.Status{
+		Code:  200,
+		Job:    jobName,
+		Phase: "created",
+	}
+	job.UpdateStatusFile(status)
+
 	job.CreateStatusFile(jobName)
-
 	filesAndCmds = job.ConstructFilesAndCmd(jobName)
-
-
-	// config --> lines --> target-hosts/jobname.hosts
+	// config --> lines --> target-hosts/{jobname}.hosts
 	f, err = os.OpenFile(filesAndCmds.HostsFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	defer f.Close()
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	lines, err = job.GenerateHostFileContent(config)
+	lines, err = job.GenerateHostFileContent(dto.Name, config)
 	if err != nil {
 		log.Println("GenerateHostFileContent failed.")
 		return
@@ -223,10 +239,43 @@ func StartInitHdfs(dto db.ClusterDto) {
 	f.WriteString(strings.Join(lines, "\r\n"))
 
 
+	// ssh
+	for _, n = range config.Nodes {
+		allHosts = append(allHosts, n.Ip)
+	}
+	err = util.RunSsh(config.Password, allHosts)
+	if err != nil {
 
+		log.Println("Failed to sent ssh public key to target host:", err)
+		goto FINISH
+	}
 
-	//hdfs task  is created
+	//hdfs task  is starting to run
+	global.G_JobExcutingInfo[jobName]="Running"
+	cmd = exec.CommandContext(cancelCtx, "bash", "-c", filesAndCmds.CoreCmdStr)
+	cmdStdoutPipe, _ = cmd.StdoutPipe()
+	cmdStderrPipe, _ = cmd.StderrPipe()
+	go job.SyncLog(cmdStdoutPipe, filesAndCmds.Logfile, false)
+	go job.SyncLog(cmdStderrPipe, filesAndCmds.Logfile, false)
+	log.Println("Job " + jobName + " is Running")
+	status = module.Status{
+		Code:  200,
+		Job:    jobName,
+		Phase: "Running",
+	}
+	job.UpdateStatusFile(status)
+	err = cmd.Start()
+	if err != nil {
+		goto FINISH
+	}
+	err = cmd.Wait()
+
+FINISH:
+	status = job.ConstructFinalStatus(jobName, err)
+	job.UpdateStatusFile(status)
+	log.Println("Job is completely finished:", jobName)
 }
+
 
 
 

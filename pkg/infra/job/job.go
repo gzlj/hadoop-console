@@ -6,6 +6,8 @@ import (
 	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
 	"github.com/gzlj/hadoop-console/pkg/module"
+	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"strings"
@@ -45,7 +47,7 @@ func ConstructFilesAndCmd(jobName string) (filesAndCmds module.TaskFilesAndCmds)
 	return
 }
 
-func GenerateHostFileContent(config db.ClusterConfig) (lines []string, err error) {
+func GenerateHostFileContent(cluster string, config db.ClusterConfig) (lines []string, err error) {
 	/*
 	[all:vars]
 all_hosts="[{"hostname":"nn1","ip":"192.168.25.202"},{"hostname":"nn2","ip":"192.168.25.201"},{"hostname":"dn3","ip":"192.168.25.200"}]"
@@ -103,7 +105,7 @@ cluster=liujun
 	if err != nil {
 		return
 	}*/
-	ansibleConfig = getAnsibleHostsConfig(config)
+	ansibleConfig = getAnsibleHostsConfig(cluster, config)
 	bytes, err = json.Marshal(ansibleConfig.AllHostAndips)
 	if err != nil {
 		log.Println("json Marshal Error happend when generate ansible hosts file:", err)
@@ -118,12 +120,12 @@ cluster=liujun
 		"zookeeper_server_3=" + ansibleConfig.Zk3,
 		"datanodes=" + strings.Replace(strings.Trim(fmt.Sprint(ansibleConfig.HostNameForDataNodes), "[]"), " ", ",", -1),
 		"journalnode_1=" + ansibleConfig.HostNameForJn1,
-		"journalnode_2" + ansibleConfig.HostNameForJn2,
-		"journalnode_3" + ansibleConfig.HostNameForJn3,
+		"journalnode_2=" + ansibleConfig.HostNameForJn2,
+		"journalnode_3=" + ansibleConfig.HostNameForJn3,
 		"namenode_1=" + ansibleConfig.HostNameForNn1,
 		"namenode_2=" + ansibleConfig.HostNameForNn2,
-		"resource_manager_1" + ansibleConfig.HostNameForRm1,
-		"resource_manager_2" + ansibleConfig.HostNameForRm2,
+		"resource_manager_1=" + ansibleConfig.HostNameForRm1,
+		"resource_manager_2=" + ansibleConfig.HostNameForRm2,
 		"password=" + ansibleConfig.Password,
 		"cluster=" + ansibleConfig.Cluster,
 		"[nn]",
@@ -149,7 +151,7 @@ cluster=liujun
 	return
 }
 
-func getAnsibleHostsConfig(config db.ClusterConfig) (ansibleConfig module.AnsibleHostsConfig){
+func getAnsibleHostsConfig(cluster string, config db.ClusterConfig) (ansibleConfig module.AnsibleHostsConfig){
 	var node module.NodeRole
 	var role string
 	var hostAndips []module.HostnameIp
@@ -174,7 +176,7 @@ func getAnsibleHostsConfig(config db.ClusterConfig) (ansibleConfig module.Ansibl
 			Hostname: node.Hostname,
 			Ip: node.Ip,
 		})
-		for role = range node.Roles {
+		for _, role = range node.Roles {
 
 
 
@@ -184,21 +186,31 @@ func getAnsibleHostsConfig(config db.ClusterConfig) (ansibleConfig module.Ansibl
 				ansibleConfig.HostNameForDataNodes = append(ansibleConfig.HostNameForDataNodes, node.Hostname)
 			case global.ROLE_ZOOKEEPER_SERVER_1:
 				ansibleConfig.Zk1 = node.Ip
-
 			case global.ROLE_ZOOKEEPER_SERVER_2:
 				ansibleConfig.Zk2 = node.Ip
 			case global.ROLE_ZOOKEEPER_SERVER_3:
 				ansibleConfig.Zk3 = node.Ip
-
 			case global.ROLE_JOURNALNODE_1:
+				ansibleConfig.Jn1 = node.Ip
+				ansibleConfig.HostNameForJn1 = node.Hostname
 			case global.ROLE_JOURNALNODE_2:
+				ansibleConfig.Jn2 = node.Ip
+				ansibleConfig.HostNameForJn2 = node.Hostname
 			case global.ROLE_JOURNALNODE_3:
-
+				ansibleConfig.Jn3 = node.Ip
+				ansibleConfig.HostNameForJn3 = node.Hostname
 			case global.ROLE_NAMENODE_1:
+				ansibleConfig.Nn1 = node.Ip
+				ansibleConfig.HostNameForNn1 = node.Hostname
 			case global.ROLE_NAMENODE_2:
+				ansibleConfig.Nn2 = node.Ip
+				ansibleConfig.HostNameForNn2 = node.Hostname
 			case global.ROLE_RESOURCE_MANAGER_1:
+				ansibleConfig.Rm1 = node.Ip
+				ansibleConfig.HostNameForRm1 = node.Hostname
 			case global.ROLE_RESOURCE_MANAGER_2:
-
+				ansibleConfig.Rm2 = node.Ip
+				ansibleConfig.HostNameForRm2 = node.Hostname
 			default:
 				log.Println("Unknown Role: ", role)
 			}
@@ -207,5 +219,123 @@ func getAnsibleHostsConfig(config db.ClusterConfig) (ansibleConfig module.Ansibl
 
 	//hostAndips
 	ansibleConfig.AllHostAndips = hostAndips
+	ansibleConfig.Password = config.Password
+	ansibleConfig.Cluster = cluster
+	return
+}
+
+/*
+func UpdateStatusFile(status common.Status) (err error) {
+	var (
+		statusFile string = common.STATUS_DIR + "/" + status.Id + common.STATUS_FILE_SUFFIX
+		bytes      []byte
+	)
+
+	f, err := os.OpenFile(statusFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	if bytes, err = json.Marshal(status); err != nil {
+		fmt.Println("upload job status fail.")
+		return
+	}
+	f.WriteString(string(bytes))
+	return
+}
+ */
+func UpdateStatusFile(status module.Status) (err error) {
+	var (
+		statusFile string = global.STATUS_DIR + "/" + status.Job + global.STATUS_FILE_SUFFIX
+		bytes      []byte
+	)
+	f, err := os.OpenFile(statusFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	if bytes, err = json.Marshal(status); err != nil {
+		log.Println("update job status fail for job:", status.Job)
+		return
+	}
+	f.WriteString(string(bytes))
+	return
+}
+
+func ConstructFinalStatus(job string, err error) (status module.Status) {
+	if err != nil {
+		/*
+			Code:  500,
+			Err:   "Some error happened.Please check log file.",
+			Phase: "failed",
+			Id:    jobId,
+		 */
+		status.Job = job
+		status.Code = 500
+		status.Err = "Some error happened.Please check log file: " + err.Error()
+		status.Phase = "failed"
+	} else {
+	/*
+		Code:  200,
+			Err:   "",
+			Phase: "exited",
+			Id:    jobId,
+	 */
+		status.Job = job
+		status.Code = 200
+		status.Phase = "exited"
+	}
+	return
+}
+
+func SyncLog(reader io.ReadCloser, file string, append bool) {
+	//fmt.Println("start syncLog()")
+	/*	scanner := bufio.NewScanner(reader)
+		for scanner.Scan() { // 命令在执行的过程中, 实时地获取其输出
+			data, err := simplifiedchinese.GB18030.NewDecoder().Bytes(scanner.Bytes()) // 防止乱码
+			if err != nil {
+				fmt.Println("transfer error with bytes:", scanner.Bytes())
+				continue
+			}
+
+			fmt.Printf("%s\n", string(data))
+		}*/
+	var (
+		f *os.File
+	)
+	if append {
+		f, _ = os.OpenFile(file, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	} else {
+		f, _ = os.OpenFile(file, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	}
+	defer f.Close()
+	buf := make([]byte, 1024, 1024)
+	for {
+		strNum, err := reader.Read(buf)
+
+		if err != nil {
+			//读到结尾
+			if err == io.EOF || strings.Contains(err.Error(), "file already closed") {
+				//err = nil
+				break
+			}
+		}
+		outputByte := buf[:strNum]
+		f.WriteString(string(outputByte))
+	}
+}
+
+func QueryJobLogByName(jobName string) (result string) {
+	var (
+		bytes []byte
+		err   error
+	)
+
+	if bytes, err = ioutil.ReadFile(global.LOGS_DIR + jobName + global.LOG_FILE_SUFFIX); err != nil {
+		result = err.Error()
+	}
+	result = string(bytes)
 	return
 }

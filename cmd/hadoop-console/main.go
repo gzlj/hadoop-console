@@ -72,6 +72,8 @@ func registryBasicApis(r *gin.Engine) {
 	r.POST("/clusters", handler.HandlerCreateCluster)
 	r.GET("/clusters", handler.HandlerListCluster)
 	r.POST("/heartbeat", handler.HandlerHeartBeat)
+	r.POST("/cluster/init", handler.HandlerInitHdfs)
+	r.GET("/cluster/log", handler.QueryJobLog)
 
 }
 
