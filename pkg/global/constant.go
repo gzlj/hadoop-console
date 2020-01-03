@@ -18,6 +18,9 @@ const (
 	ROLE_RESOURCE_MANAGER_1 = "resource_manager_1"
 	ROLE_RESOURCE_MANAGER_2 = "resource_manager_2"
 
+	ROLE_HBASE_MASTER = "hbase_role_master"
+	ROLE_HBASE_REGION_SERVER = "hbase_role_region"
+
 
 
 	WORKING_DIR = "/etc/ansible/"
@@ -40,6 +43,10 @@ const (
 
 	// /etc/ansible/hdfs.yaml
 	HADOOP_HDFS_YAML_FILE = WORKING_DIR + "hdfs.yaml"
+	HBASE_YAML_FILE = WORKING_DIR + "hbase.yaml"
+	SPARK_YAML_FILE = WORKING_DIR + "spark.yaml"
+	SQOOP_YAML_FILE = WORKING_DIR + "sqoop.yaml"
+	HIVE_YAML_FILE = WORKING_DIR + "hive.yaml"
 
 	//single-master-bootstrap.yaml
 	SINGLE_MASTER_BOOTSTRAP_YAML_FILE = WORKING_DIR + "/single-master-bootstrap.yaml"

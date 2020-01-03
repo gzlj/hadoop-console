@@ -223,7 +223,7 @@ func StartInitHdfs(dto db.ClusterDto) {
 	job.UpdateStatusFile(status)
 
 	job.CreateStatusFile(jobName)
-	filesAndCmds = job.ConstructFilesAndCmd(jobName)
+	filesAndCmds = job.ConstructFilesAndCmd(dto.Name)
 	// config --> lines --> target-hosts/{jobname}.hosts
 	f, err = os.OpenFile(filesAndCmds.HostsFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	defer f.Close()
@@ -252,11 +252,93 @@ func StartInitHdfs(dto db.ClusterDto) {
 
 	//hdfs task  is starting to run
 	global.G_JobExcutingInfo[jobName]="Running"
-	cmd = exec.CommandContext(cancelCtx, "bash", "-c", filesAndCmds.CoreCmdStr)
+	cmd = exec.CommandContext(cancelCtx, "bash", "-c", filesAndCmds.HdfsCmdStr)
 	cmdStdoutPipe, _ = cmd.StdoutPipe()
 	cmdStderrPipe, _ = cmd.StderrPipe()
-	go job.SyncLog(cmdStdoutPipe, filesAndCmds.Logfile, false)
-	go job.SyncLog(cmdStderrPipe, filesAndCmds.Logfile, false)
+	go job.SyncLog(cmdStdoutPipe, filesAndCmds.HdfsLogfile, false)
+	go job.SyncLog(cmdStderrPipe, filesAndCmds.HdfsLogfile, false)
+	log.Println("Job " + jobName + " is Running")
+	status = module.Status{
+		Code:  200,
+		Job:    jobName,
+		Phase: "Running",
+	}
+	job.UpdateStatusFile(status)
+	err = cmd.Start()
+	if err != nil {
+		goto FINISH
+	}
+	err = cmd.Wait()
+
+
+	// hbase spark and so on
+	//waitgroup
+	initComponent(filesAndCmds.HbaseJobName, filesAndCmds.HbaseCmdStr, filesAndCmds.HbaseLogfile)
+
+
+
+
+
+
+
+FINISH:
+	status = job.ConstructFinalStatus(jobName, err)
+	job.UpdateStatusFile(status)
+	log.Println("Job is completely finished:", jobName)
+}
+
+/*func initHbase(dto db.ClusterDto, filesAndCmds module.TaskFilesAndCmds) {
+var (
+	cmdStdoutPipe io.ReadCloser
+	cmdStderrPipe io.ReadCloser
+	cmd           *exec.Cmd
+	jobName string = dto.Name+"-hbase"
+	status module.Status
+	err error
+
+	logFile string
+	)
+	global.G_JobExcutingInfo[dto.Name+"-hbase"]="created"
+
+	cmd = exec.CommandContext(context.TODO(), "bash", "-c", filesAndCmds.HbaseLogfile)
+	cmdStdoutPipe, _ = cmd.StdoutPipe()
+	cmdStderrPipe, _ = cmd.StderrPipe()
+	go job.SyncLog(cmdStdoutPipe, filesAndCmds.HdfsLogfile, false)
+	go job.SyncLog(cmdStderrPipe, filesAndCmds.HdfsLogfile, false)
+	log.Println("Job " + jobName + " is Running")
+	status = module.Status{
+		Code:  200,
+		Job:    jobName,
+		Phase: "Running",
+	}
+	job.UpdateStatusFile(status)
+	err = cmd.Start()
+	if err != nil {
+		goto FINISH
+	}
+	err = cmd.Wait()
+
+FINISH:
+	status = job.ConstructFinalStatus(jobName, err)
+	job.UpdateStatusFile(status)
+	log.Println("Job is completely finished:", jobName)
+}*/
+
+func initComponent(jobName, cmdStr, logFile string) {
+	var (
+		cmdStdoutPipe io.ReadCloser
+		cmdStderrPipe io.ReadCloser
+		cmd           *exec.Cmd
+		status module.Status
+		err error
+	)
+	global.G_JobExcutingInfo[jobName]="created"
+
+	cmd = exec.CommandContext(context.TODO(), "bash", "-c", cmdStr)
+	cmdStdoutPipe, _ = cmd.StdoutPipe()
+	cmdStderrPipe, _ = cmd.StderrPipe()
+	go job.SyncLog(cmdStdoutPipe, logFile, false)
+	go job.SyncLog(cmdStderrPipe, logFile, false)
 	log.Println("Job " + jobName + " is Running")
 	status = module.Status{
 		Code:  200,

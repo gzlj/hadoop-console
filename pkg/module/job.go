@@ -8,9 +8,27 @@ type Status struct {
 }
 
 type TaskFilesAndCmds struct {
-	HostsFile string
-	Logfile string
-	CoreCmdStr string
+	HostsFile   string
+
+	HdfsJobName string
+	HdfsLogfile string
+	HdfsCmdStr  string
+
+	HbaseJobName string
+	HbaseCmdStr string
+	HbaseLogfile string
+
+	SparkJobName string
+	SparkCmdStr string
+	SparkLogfile string
+
+	HiveJobName string
+	HiveCmdStr string
+	HiveLogfile string
+
+	SqoopJobName string
+	SqoopCmdStr string
+	SqoopLogfile string
 }
 
 type AnsibleHostsConfig struct {
@@ -41,4 +59,7 @@ type AnsibleHostsConfig struct {
 
 
 	AllHostAndips []HostnameIp `json:"allHostAndips"`
+
+	HbaseMasters []HostnameIp `json:"hbaseMasters"`
+	HbaseRegionservers []HostnameIp `json:"regionservers"`
 }

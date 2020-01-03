@@ -40,10 +40,32 @@ func CreateStatusFile(jobName string) (err error) {
 	return
 }
 
-func ConstructFilesAndCmd(jobName string) (filesAndCmds module.TaskFilesAndCmds) {
-	filesAndCmds.HostsFile = global.HOSTS_DIR + jobName +  global.HOSTS_FILE_SUFFIX
-	filesAndCmds.Logfile = global.LOGS_DIR + jobName +  global.LOG_FILE_SUFFIX
-	filesAndCmds.CoreCmdStr = "ansible-playbook " + global.HADOOP_HDFS_YAML_FILE + " -i " + filesAndCmds.HostsFile
+func ConstructFilesAndCmd(cluster string) (filesAndCmds module.TaskFilesAndCmds) {
+
+
+
+	filesAndCmds.HostsFile = global.HOSTS_DIR + cluster +  global.HOSTS_FILE_SUFFIX
+
+	filesAndCmds.HdfsJobName = cluster + "-hdfs"
+	filesAndCmds.HdfsLogfile = global.LOGS_DIR + filesAndCmds.HdfsJobName +  global.LOG_FILE_SUFFIX
+	filesAndCmds.HdfsCmdStr = "ansible-playbook " + global.HADOOP_HDFS_YAML_FILE + " -i " + filesAndCmds.HostsFile
+
+	filesAndCmds.HbaseJobName = cluster + "-hbase"
+	filesAndCmds.HbaseLogfile = global.LOGS_DIR + filesAndCmds.HbaseJobName +   global.LOG_FILE_SUFFIX
+	filesAndCmds.HbaseCmdStr = "ansible-playbook " + global.HBASE_YAML_FILE + " -i " + filesAndCmds.HostsFile
+
+	filesAndCmds.SparkJobName = cluster + "-spark"
+	filesAndCmds.SparkLogfile = global.LOGS_DIR + filesAndCmds.SparkJobName +   global.LOG_FILE_SUFFIX
+	filesAndCmds.SparkCmdStr = "ansible-playbook " + global.SPARK_YAML_FILE + " -i " + filesAndCmds.HostsFile
+
+	filesAndCmds.HiveJobName = cluster + "-hive"
+	filesAndCmds.HiveLogfile = global.LOGS_DIR + filesAndCmds.HiveJobName +   global.LOG_FILE_SUFFIX
+	filesAndCmds.HiveCmdStr = "ansible-playbook " + global.HIVE_YAML_FILE + " -i " + filesAndCmds.HostsFile
+
+	filesAndCmds.SqoopJobName = cluster + "-sqoop"
+	filesAndCmds.SqoopLogfile = global.LOGS_DIR + filesAndCmds.SqoopJobName +   global.LOG_FILE_SUFFIX
+	filesAndCmds.SqoopCmdStr = "ansible-playbook " + global.SQOOP_YAML_FILE + " -i " + filesAndCmds.HostsFile
+
 	return
 }
 
@@ -83,6 +105,12 @@ cluster=liujun
 192.168.25.202 zk_role=zk1
 192.168.25.201 zk_role=zk2
 192.168.25.200 zk_role=zk3
+
+	[hbase]
+192.168.25.202 hbase_role_master=true hbase_role_region=true
+192.168.25.201 hbase_role_master=true hbase_role_region=true
+192.168.25.200 hbase_role_region=true
+
 	 */
 
 	var (
@@ -112,6 +140,16 @@ cluster=liujun
 		return
 	}
 
+	var hbaseRegionHostnames, hbaseRegionIps []string
+	for _, r := range ansibleConfig.HbaseRegionservers {
+		hbaseRegionHostnames = append(hbaseRegionHostnames, r.Hostname)
+	}
+	for _, r := range ansibleConfig.HbaseRegionservers {
+		hbaseRegionIps = append(hbaseRegionIps, r.Ip)
+	}
+
+
+
 	lines = []string{
 		"[all:vars]",
 		"all_hosts=\"" + string(bytes) + "\"",
@@ -128,6 +166,7 @@ cluster=liujun
 		"resource_manager_2=" + ansibleConfig.HostNameForRm2,
 		"password=" + ansibleConfig.Password,
 		"cluster=" + ansibleConfig.Cluster,
+		"hbase_regionservers=" + strings.Replace(strings.Trim(fmt.Sprint(hbaseRegionHostnames), "[]"), " ", ",", -1),
 		"[nn]",
 		ansibleConfig.Nn1 + " nn_role=nn1",
 		ansibleConfig.Nn2 + " nn_role=nn2",
@@ -141,13 +180,28 @@ cluster=liujun
 		ansibleConfig.Zk1 + " zk_role=zk1",
 		ansibleConfig.Zk2 + " zk_role=zk2",
 		ansibleConfig.Zk3 + " zk_role=zk3",
+
+
 	}
 
 	lines = append(lines, "[dn]")
 	for _, ip := range ansibleConfig.IpForDataNodes {
 		lines = append(lines, ip)
 	}
+	lines = append(lines, "[hbase]")
+/*	for _, node := range ansibleConfig.HbaseMasters {
+		lines = append(lines, node.Ip+ " hbase_role_master=true")
+	}*/
+	for _, ip := range hbaseRegionIps {
+		for _, node := range ansibleConfig.HbaseMasters {
+			if node.Ip == ip {
+				ip = ip + " hbase_role_master=true"
+				break
+			}
 
+		}
+		lines = append(lines, ip)
+	}
 	return
 }
 
@@ -211,6 +265,17 @@ func getAnsibleHostsConfig(cluster string, config db.ClusterConfig) (ansibleConf
 			case global.ROLE_RESOURCE_MANAGER_2:
 				ansibleConfig.Rm2 = node.Ip
 				ansibleConfig.HostNameForRm2 = node.Hostname
+			case global.ROLE_HBASE_MASTER:
+				ansibleConfig.HbaseMasters = append(ansibleConfig.HbaseMasters, module.HostnameIp{
+					Hostname: node.Hostname,
+					Ip: node.Ip,
+				})
+			case global.ROLE_HBASE_REGION_SERVER:
+				ansibleConfig.HbaseRegionservers = append(ansibleConfig.HbaseRegionservers, module.HostnameIp{
+					Hostname: node.Hostname,
+					Ip: node.Ip,
+				})
+
 			default:
 				log.Println("Unknown Role: ", role)
 			}
