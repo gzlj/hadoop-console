@@ -30,18 +30,109 @@ func InitDb() {
 	log.Println("G_db:", db)
 }
 
-func ADDCluster(like *Cluster) error {
+func ADDCluster(like *Cluster) (err error) {
 
-	where := G_db.Where("name = ? AND removed = ?", like.Name, 0)
-	if where.Error == nil {
+	//count := G_db.Table("clusters").Where("name = ? AND removed = ?", like.Name, "0").RowsAffected
+	var (
+		count  int
+
+		ss []*Service
+
+		s *Service
+	)
+	G_db.Model(Cluster{
+		Name: like.Name,
+		Removed: 0,
+	}).Where("name = ? AND removed = ?", like.Name, "0").Count(&count)
+
+	log.Println("count: ", count)
+
+	if count > 0  {
 		return errors.New("Cluster already exists: "+  like.Name)
 	}
-	if err := G_db.Create(like).Error; err != nil {
+
+	tx := G_db.Begin()
+
+	if err = tx.Create(like).Error; err != nil {
 		//log.Fatal(err)
-		return err
+		return
+	}
+	// cluster --> []service
+	ss, err = GetServicesFromCluster(like)
+	if err != nil {
+		log.Println("Failed cluster for ", like.Name,":", err)
+		return
+	}
+
+	for _, s = range ss {
+		if err = tx.Create(s).Error; err != nil {
+			tx.Rollback()
+			break
+		}
+	}
+	if err != nil {
+		log.Println("Failed cluster for ", like.Name,":", err)
+		return
 	}
 	log.Print("Create cluster successully:", like.Name)
+	tx.Commit()
 	return nil
+}
+
+func GetServiceByClusterId(id uint) (ss []*Service, err error){
+
+	//G_db.Find(&clusters, "removed = ?", "0")
+	G_db.Find(&Service{}, "cid = ? AND removed = ?", id, "0")
+	return
+}
+
+func GetServiceByNameAndClusterId(name string, cid uint) (ss []*Service, err error){
+
+	//G_db.Find(&clusters, "removed = ?", "0")
+	G_db.Find(&ss, "name = ? AND cid = ? AND removed = ?",name, cid, "0")
+
+
+
+	return
+}
+
+func GetServicesFromCluster(c *Cluster) (ss []*Service, err error) {
+	var (
+		config module.ClusterConf
+		//hdfsConfig module.HdfsConfig
+	//hbaseConfig module.HbaseConfig
+		//tmp string
+		bytes []byte
+	)
+	//var config module.ClusterConf
+	err = json.Unmarshal([]byte(c.Config), &config)
+	if err != nil {
+		log.Println("Failed to get config from cluster becouse of error of json Unmarshal :", c.Name)
+		return
+	}
+	//hdfsConfig = config.HdfsConfig
+
+	bytes, err = json.Marshal(config.HdfsConfig)
+	if err != nil {
+		log.Println("Failed to get hdfs config from cluster config becouse of error of json Unmarshal :", c.Name)
+		return
+	}
+	ss = append(ss, &Service{
+		Cid:c.ID,
+		Name: "HDFS",
+		Config: string(bytes),
+	})
+	bytes, err = json.Marshal(config.HbaseConfig)
+	if err != nil {
+		log.Println("Failed to get hbase config from cluster config becouse of error of json Unmarshal :", c.Name)
+		return make([]*Service, 0), err
+	}
+	ss = append(ss, &Service{
+		Cid:c.ID,
+		Name: "HBASE",
+		Config: string(bytes),
+	})
+	return
 }
 
 func QueryById(id int) *Cluster {
@@ -87,4 +178,29 @@ func UpdateStatusByName(cluster string, nss []*module.NodeStatus) (err error){
 	err = update.Error
 	//log.Println("UpdateStatus error: ", err)
 	return
+}
+
+func AppendSyncLog(taskId uint, bytes []byte) {
+	var (
+		err error
+		l   Log)
+	G_db.Table("logs").Where("tid = ? AND removed = ?", taskId, "0").Find(&l)
+
+	if l.ID > 0 {
+		//append
+		l.Content = l.Content + string(bytes)
+		if err = G_db.Save(&l).Error; err != nil {
+			log.Println("Failed to update record to logs table for task:", taskId, ":", err)
+		}
+		return
+	}
+	l.Tid = taskId
+	l.Content = string(bytes)
+	G_db.Create(&l)
+
+	// create
+	if err = G_db.Create(&l).Error; err != nil {
+		log.Println("Failed to insert record to logs table for task:", taskId, ":", err)
+	}
+
 }

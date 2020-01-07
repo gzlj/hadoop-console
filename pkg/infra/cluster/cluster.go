@@ -6,7 +6,6 @@ import (
 	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
 	"github.com/gzlj/hadoop-console/pkg/infra/job"
-	"github.com/gzlj/hadoop-console/pkg/infra/util"
 	"github.com/gzlj/hadoop-console/pkg/module"
 	"io"
 	"log"
@@ -153,11 +152,53 @@ func syncFromHeartBeat(hb module.NodeHeartBeat) {
 			nodes[i].RunningComponents = hb.RunningComponents
 			nodes[i].LastKnown = module.Time(time.Now())
 			nodes[i].State = "Ready"
+
+			/*var components []module.ComponentStatus
+
+			//calculate component
+			for _, r := range nodes[i].Roles {
+
+
+
+
+				switch r {
+			case global.ROLE_DATANODE:
+
+			case global.ROLE_ZOOKEEPER_SERVER_1:
+			case global.ROLE_ZOOKEEPER_SERVER_2:
+			case global.ROLE_ZOOKEEPER_SERVER_3:
+			case global.ROLE_JOURNALNODE_1:
+
+			case global.ROLE_JOURNALNODE_2:
+
+			case global.ROLE_JOURNALNODE_3:
+
+			case global.ROLE_NAMENODE_1:
+
+			case global.ROLE_NAMENODE_2:
+
+			case global.ROLE_RESOURCE_MANAGER_1:
+
+			case global.ROLE_RESOURCE_MANAGER_2:
+
+			case global.ROLE_HBASE_MASTER:
+				ansibleConfig.HbaseMasters = append(ansibleConfig.HbaseMasters, module.HostnameIp{
+					Hostname: node.Hostname,
+					Ip: node.Ip,
+				})
+			case global.ROLE_HBASE_REGION_SERVER:
+				ansibleConfig.HbaseRegionservers = append(ansibleConfig.HbaseRegionservers, module.HostnameIp{
+					Hostname: node.Hostname,
+					Ip: node.Ip,
+				})
+
+			}*/
+
 		}
 	}
 }
 
-func CalculateNodeStatus() {
+func CalculateNodeStatus(){
 	var (
 		cluster string
 		info module.ClusterRuntimeInfo
@@ -193,27 +234,70 @@ func CalculateNodeStatusLoop() {
 	}
 }
 
-func StartInitHdfs(dto db.ClusterDto) {
+func addClusterInitTask(clusterId uint) (tid uint, err error) {
 	var (
-		config db.ClusterConfig = dto.Config
+		ss []*db.Service
+		sid uint
+	)
+	ss ,err = db.GetServiceByNameAndClusterId("HDFS", clusterId)
+	if err != nil {
+		return
+	}
+	if len(ss) == 0 {
+		log.Println("Failed to get services from cluster.")
+	}
+
+	if len(ss) > 0 {
+		//s := ss[0]
+		sid = ss[0].ID
+
+		task := db.Task{
+			Cid: clusterId,
+			Sid: sid,
+			Name: "Bootstrap HDFS",
+			Status: "Running",
+			Message: "",
+		}
+		err = db.G_db.Create(&task).Error
+		if err != nil {
+			log.Println("Failed to instert task record to tasks table:",err)
+		}
+		if err == nil {
+			tid = task.ID
+		}
+	}
+	return
+}
+
+func StartInitHdfs(id int, cluster string, config module.ClusterConf) {
+	var (
+		//config db.ClusterConfig = dto.Config
 		jobName string
 		filesAndCmds module.TaskFilesAndCmds
 		err error
 		lines []string
 		f *os.File
-		allHosts []string
-		n module.NodeRole
+		//allHosts []string
+		//n module.NodeRole
 		status module.Status
 		cancelCtx, _ = context.WithCancel(context.TODO())
 		cmdStdoutPipe io.ReadCloser
-		cmdStderrPipe io.ReadCloser
+		//cmdStderrPipe io.ReadCloser
 		cmd           *exec.Cmd
+		tid uint
 	)
-	jobName = dto.Name +"-hdfs"
+	jobName = cluster +"-hdfs"
 
 	//hdfs task  is created
 	global.G_JobExcutingInfo[jobName]="created"
 	defer delete(global.G_JobExcutingInfo, jobName)
+	// insert a record to tasks table
+	tid, err = addClusterInitTask(uint(id))
+	if err != nil {
+		log.Println("Failed to insert HDFS task to db for cluster:",cluster)
+		goto FINISH
+	}
+
 	log.Println("Job " + jobName + " is initializing")
 	status = module.Status{
 		Code:  200,
@@ -223,7 +307,7 @@ func StartInitHdfs(dto db.ClusterDto) {
 	job.UpdateStatusFile(status)
 
 	job.CreateStatusFile(jobName)
-	filesAndCmds = job.ConstructFilesAndCmd(dto.Name)
+	filesAndCmds = job.ConstructFilesAndCmd(cluster)
 	// config --> lines --> target-hosts/{jobname}.hosts
 	f, err = os.OpenFile(filesAndCmds.HostsFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	defer f.Close()
@@ -231,7 +315,7 @@ func StartInitHdfs(dto db.ClusterDto) {
 		log.Println(err)
 		return
 	}
-	lines, err = job.GenerateHostFileContent(dto.Name, config)
+	lines, err = job.GenerateHostFileContent(cluster, config)
 	if err != nil {
 		log.Println("GenerateHostFileContent failed.")
 		return
@@ -240,7 +324,7 @@ func StartInitHdfs(dto db.ClusterDto) {
 
 
 	// ssh
-	for _, n = range config.Nodes {
+/*	for _, n = range config.Nodes {
 		allHosts = append(allHosts, n.Ip)
 	}
 	err = util.RunSsh(config.Password, allHosts)
@@ -248,15 +332,17 @@ func StartInitHdfs(dto db.ClusterDto) {
 
 		log.Println("Failed to sent ssh public key to target host:", err)
 		goto FINISH
-	}
+	}*/
 
 	//hdfs task  is starting to run
 	global.G_JobExcutingInfo[jobName]="Running"
 	cmd = exec.CommandContext(cancelCtx, "bash", "-c", filesAndCmds.HdfsCmdStr)
 	cmdStdoutPipe, _ = cmd.StdoutPipe()
-	cmdStderrPipe, _ = cmd.StderrPipe()
-	go job.SyncLog(cmdStdoutPipe, filesAndCmds.HdfsLogfile, false)
-	go job.SyncLog(cmdStderrPipe, filesAndCmds.HdfsLogfile, false)
+	//cmdStderrPipe, _ = cmd.StderrPipe()
+	//go job.SyncLog(cmdStdoutPipe, filesAndCmds.HdfsLogfile, false)
+	//go job.SyncLog(cmdStderrPipe, filesAndCmds.HdfsLogfile, false)
+	go job.SyncLogToDb(cmdStdoutPipe, tid)
+	//go job.SyncLogToDb(cmdStderrPipe)
 	log.Println("Job " + jobName + " is Running")
 	status = module.Status{
 		Code:  200,
@@ -274,11 +360,6 @@ func StartInitHdfs(dto db.ClusterDto) {
 	// hbase spark and so on
 	//waitgroup
 	initComponent(filesAndCmds.HbaseJobName, filesAndCmds.HbaseCmdStr, filesAndCmds.HbaseLogfile)
-
-
-
-
-
 
 
 FINISH:

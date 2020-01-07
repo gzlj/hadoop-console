@@ -12,7 +12,7 @@ import (
 func RunSsh(password string, hosts []string) (err error){
 	hostsStr := strings.Trim(fmt.Sprint(hosts), "[]")
 	log.Println("Run ssh command for hosts:", hostsStr)
-	cmdStr := global.WORKING_DIR + "ssh-public-key.sh " + password + " " + hostsStr
+	cmdStr := global.WORKING_DIR + "ssh-public-key.sh" + " '" + password + "' " + hostsStr
 	err = RunAndWait(cmdStr)
 	return
 }

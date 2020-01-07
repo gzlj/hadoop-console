@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 )
 
 func CreateStatusFile(jobName string) (err error) {
@@ -69,70 +70,14 @@ func ConstructFilesAndCmd(cluster string) (filesAndCmds module.TaskFilesAndCmds)
 	return
 }
 
-func GenerateHostFileContent(cluster string, config db.ClusterConfig) (lines []string, err error) {
-	/*
-	[all:vars]
-all_hosts="[{"hostname":"nn1","ip":"192.168.25.202"},{"hostname":"nn2","ip":"192.168.25.201"},{"hostname":"dn3","ip":"192.168.25.200"}]"
-zookeeper_server_1=192.168.25.202
-zookeeper_server_2=192.168.25.201
-zookeeper_server_3=192.168.25.200
-datanodes=nn1,nn2,dn3
-journalnode_1=nn1
-journalnode_2=nn2
-journalnode_3=dn3
-namenode_1=nn1
-namenode_2=nn2
-resource_manager_1=nn1
-resource_manager_2=nn2
-password=5743138
-cluster=liujun
+func GenerateHostFileContent(cluster string, config module.ClusterConf) (lines []string, err error) {
 
-[nn]
-192.168.25.202 nn_role=nn1
-192.168.25.201 nn_role=nn2
-
-[jn]
-192.168.25.202
-192.168.25.201
-192.168.25.200
-
-[dn]
-192.168.25.202
-192.168.25.201
-192.168.25.200
-
-[zk]
-192.168.25.202 zk_role=zk1
-192.168.25.201 zk_role=zk2
-192.168.25.200 zk_role=zk3
-
-	[hbase]
-192.168.25.202 hbase_role_master=true hbase_role_region=true
-192.168.25.201 hbase_role_master=true hbase_role_region=true
-192.168.25.200 hbase_role_region=true
-
-	 */
 
 	var (
-		//nodes []module.NodeRole = config.Nodes
-		//nodesStr string
-		//hostAndip module.HostnameIp
-		//hostAndips []module.HostnameIp
 		bytes []byte
 		ansibleConfig module.AnsibleHostsConfig
-
 	)
-	/*for _, n := range nodes {
-		hostAndips = append(hostAndips, module.HostnameIp{
-			Hostname: n.Hostname,
-			Ip: n.Ip,
-		})
 
-	}
-	bytes, err = json.Marshal(hostAndips)
-	if err != nil {
-		return
-	}*/
 	ansibleConfig = getAnsibleHostsConfig(cluster, config)
 	bytes, err = json.Marshal(ansibleConfig.AllHostAndips)
 	if err != nil {
@@ -180,8 +125,6 @@ cluster=liujun
 		ansibleConfig.Zk1 + " zk_role=zk1",
 		ansibleConfig.Zk2 + " zk_role=zk2",
 		ansibleConfig.Zk3 + " zk_role=zk3",
-
-
 	}
 
 	lines = append(lines, "[dn]")
@@ -189,9 +132,7 @@ cluster=liujun
 		lines = append(lines, ip)
 	}
 	lines = append(lines, "[hbase]")
-/*	for _, node := range ansibleConfig.HbaseMasters {
-		lines = append(lines, node.Ip+ " hbase_role_master=true")
-	}*/
+
 	for _, ip := range hbaseRegionIps {
 		for _, node := range ansibleConfig.HbaseMasters {
 			if node.Ip == ip {
@@ -205,26 +146,120 @@ cluster=liujun
 	return
 }
 
-func getAnsibleHostsConfig(cluster string, config db.ClusterConfig) (ansibleConfig module.AnsibleHostsConfig){
-	var node module.NodeRole
-	var role string
+func getAnsibleHostsConfig(cluster string, config module.ClusterConf) (ansibleConfig module.AnsibleHostsConfig){
+	var ipMap map[string]module.HostnameIp = make(map[string]module.HostnameIp)
 	var hostAndips []module.HostnameIp
-	/*
+	//zookeeper
+	for _, n := range config.HdfsConfig.Zookeepers {
+		if ansibleConfig.Zk1 == "" {
+			ansibleConfig.Zk1 = n.Ip
+			continue
+		}
+		if ansibleConfig.Zk2 == "" {
+			ansibleConfig.Zk2 = n.Ip
+			continue
+		}
+		if ansibleConfig.Zk3 == "" {
+			ansibleConfig.Zk3 = n.Ip
+			continue
+		}
+	}
 
-	for _, n := range nodes {
+	// datanode and namenode
+	for _, n := range config.HdfsConfig.DataNodes {
+		ansibleConfig.IpForDataNodes = append(ansibleConfig.IpForDataNodes, n.Ip)
+		ansibleConfig.HostNameForDataNodes = append(ansibleConfig.HostNameForDataNodes, n.Hostname)
+		_, ok := ipMap[n.Hostname]
+		if ! ok {
+			ipMap[n.Hostname] = n
+		}
+
+	}
+	for i, n := range config.HdfsConfig.NameNodes {
+
+		if i == 0 {
+			ansibleConfig.Nn1 = n.Ip
+			ansibleConfig.HostNameForNn1 = n.Hostname
+		} else {
+			ansibleConfig.Nn2 = n.Ip
+			ansibleConfig.HostNameForNn2 = n.Hostname
+		}
+		_, ok := ipMap[n.Hostname]
+		if ! ok {
+			ipMap[n.Hostname] = n
+		}
+	}
+
+
+	//jn
+	for _, n := range config.HdfsConfig.JournalNodes {
+		if ansibleConfig.Jn1 == "" {
+			ansibleConfig.Jn1 = n.Ip
+			ansibleConfig.HostNameForJn1 = n.Hostname
+			continue
+		}
+		if ansibleConfig.Jn2 == "" {
+			ansibleConfig.Jn2 = n.Ip
+			ansibleConfig.HostNameForJn2 = n.Hostname
+			continue
+		}
+		if ansibleConfig.Jn3 == "" {
+			ansibleConfig.Jn3 = n.Ip
+			ansibleConfig.HostNameForJn3 = n.Hostname
+			continue
+		}
+		_, ok := ipMap[n.Hostname]
+		if ! ok {
+			ipMap[n.Hostname] = n
+		}
+	}
+
+	//rm
+	for i, n := range config.HdfsConfig.ResourceManagers {
+		if i == 0 {
+			ansibleConfig.Rm1 = n.Ip
+			ansibleConfig.HostNameForRm1 = n.Hostname
+		} else {
+			ansibleConfig.Rm2 = n.Ip
+			ansibleConfig.HostNameForRm2 = n.Hostname
+		}
+		_, ok := ipMap[n.Hostname]
+		if ! ok {
+			ipMap[n.Hostname] = n
+		}
+	}
+
+	//hbase
+	for _, n := range config.HbaseConfig.Masters {
+		ansibleConfig.HbaseMasters = append(ansibleConfig.HbaseMasters, n)
+		_, ok := ipMap[n.Hostname]
+		if ! ok {
+			ipMap[n.Hostname] = n
+		}
+	}
+	for _, n := range config.HbaseConfig.RegionServers {
+		ansibleConfig.HbaseRegionservers = append(ansibleConfig.HbaseMasters, n)
+		_, ok := ipMap[n.Hostname]
+		if ! ok {
+			ipMap[n.Hostname] = n
+		}
+	}
+
+	for _, node := range ipMap {
 		hostAndips = append(hostAndips, module.HostnameIp{
-			Hostname: n.Hostname,
-			Ip: n.Ip,
+			Hostname: node.Hostname,
+			Ip: node.Ip,
 		})
-
 	}
-	bytes, err = json.Marshal(hostAndips)
-	if err != nil {
-		return
-	}
-	 */
 
 
+	//ans
+	// ibleConfig.IpForDataNodes =
+	//ansibleConfig.HbaseMasters = append(ansibleConfig.HbaseMasters
+
+
+
+/*
 	for _, node = range config.Nodes {
 		hostAndips = append(hostAndips, module.HostnameIp{
 			Hostname: node.Hostname,
@@ -280,7 +315,7 @@ func getAnsibleHostsConfig(cluster string, config db.ClusterConfig) (ansibleConf
 				log.Println("Unknown Role: ", role)
 			}
 		}
-	}
+	}*/
 
 	//hostAndips
 	ansibleConfig.AllHostAndips = hostAndips
@@ -288,6 +323,7 @@ func getAnsibleHostsConfig(cluster string, config db.ClusterConfig) (ansibleConf
 	ansibleConfig.Cluster = cluster
 	return
 }
+
 
 /*
 func UpdateStatusFile(status common.Status) (err error) {
@@ -391,6 +427,23 @@ func SyncLog(reader io.ReadCloser, file string, append bool) {
 		f.WriteString(string(outputByte))
 	}
 }
+
+func SyncLogToDb(reader io.ReadCloser, tid uint) {
+	buf := make([]byte, 4096, 4096)
+	for {
+		strNum, err := reader.Read(buf)
+		if err != nil {
+			//读到结尾
+			if err == io.EOF || strings.Contains(err.Error(), "file already closed") {
+				//err = nil
+				break
+			}
+		}
+			db.AppendSyncLog(tid, buf[:strNum])
+			time.Sleep(time.Duration(3) * time.Second)
+		}
+}
+
 
 func QueryJobLogByName(jobName string) (result string) {
 	var (

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/infra/cluster"
@@ -8,6 +9,7 @@ import (
 	"github.com/gzlj/hadoop-console/pkg/infra/job"
 	"github.com/gzlj/hadoop-console/pkg/module"
 	"log"
+	"strconv"
 )
 
 func HandleHeartBeat(c *gin.Context) {
@@ -135,26 +137,52 @@ func HandlerHeartBeat(c *gin.Context) {
 //InitHdfs
 func HandlerInitHdfs(c *gin.Context) {
 	var (
-		dto db.ClusterDto
+		//dto db.ClusterDto
 		err error
-		//cluster db.Cluster
+		//record db.Cluster
 		response global.Response
+		id       int
+		record   *db.Cluster
+		config module.ClusterConf
 	)
-	if err = c.ShouldBindJSON(&dto); err != nil {
-		response = global.BuildResponse(400, "Requet body is not correct.", nil)
+
+	id, err = strconv.Atoi(c.Query("id"))
+	if err != nil {
+		response = global.BuildResponse(400, "Please specify cluster id.", nil)
 		c.JSON(200, response)
 		return
 	}
 
-	_, ok := global.G_JobExcutingInfo[dto.Name+"hdfs"]
+	// get record from db
+	record = db.QueryById(id)
+	if record == nil {
+		// not found
+		response = global.BuildResponse(404, "Cluster not found.", nil)
+		c.JSON(200, response)
+		return
+	}
+	err = json.Unmarshal([]byte(record.Config), &config)
+	if err != nil {
+		response = global.BuildResponse(500, "Cluster recored is not correct as json Unmarshal failed.", nil)
+		c.JSON(200, response)
+		return
+	}
+/*	if err = c.ShouldBindJSON(&dto); err != nil {
+		response = global.BuildResponse(400, "Requet body is not correct.", nil)
+		c.JSON(200, response)
+		return
+	}*/
+
+	_, ok := global.G_JobExcutingInfo[record.Name+"-hdfs"]
 	if ok {
 		response = global.BuildResponse(400, "Job is already Running.Please wait to complete.", nil)
 		c.JSON(200, response)
 		return
 	}
-	go cluster.StartInitHdfs(dto)
 
-	//cluster.HbChan <- hb
+	go cluster.StartInitHdfs(id, record.Name, config)
+
+	//record.HbChan <- hb
 	response = global.BuildResponse(200, "OK.", nil)
 	c.JSON(200, response)
 }
@@ -179,6 +207,36 @@ func QueryJobLog(c *gin.Context) {
 	//job name
 	jobName := cluster + "-" + class
 	c.String(200, job.QueryJobLogByName(jobName))
+}
+
+func TestTask(c *gin.Context) {
+	var (
+		err error
+	)
+
+	var (
+		ss []*db.Service
+	)
+	ss ,err = db.GetServiceByNameAndClusterId("HDFS", 19)
+	if err != nil {
+		return
+	}
+	if len(ss) == 0 {
+		log.Println("Failed to get services from cluster.")
+	}
+/*
+	task := db.Task{
+		Cid: 10,
+		Sid: 10,
+		Name: "Bootstrap HDFS",
+		Status: "Running",
+		Message: "",
+	}
+	err = db.G_db.Create(&task).Error
+	if err != nil {
+		log.Println("Failed to instert Task record to tasks table:",err)
+	}*/
+	c.JSON(200, nil)
 }
 
 

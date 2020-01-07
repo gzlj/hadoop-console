@@ -18,9 +18,34 @@ type Cluster struct {
 	Status string `gorm:"type:varchar(4096);"`
 }
 
+type Service struct {
+	gorm.Model
+	Cid uint `gorm:"type:int(10) unsigned;not null;"`
+	Name string `gorm:"type:varchar(64);not null;"`
+	Config string `gorm:"type:varchar(4096);not null;"`
+	Removed int `gorm:"type:tinyint(1);not null;"`
+}
+
+type Log struct {
+	gorm.Model
+	Tid uint `gorm:"type:int(10) unsigned;not null;"`
+	Content string `gorm:"type:MEDIUMTEXT;not null;"`
+	Removed int `gorm:"type:tinyint(1);not null;"`
+}
+
+type Task struct {
+	gorm.Model
+	Cid uint `gorm:"type:int(10) unsigned;not null;"`
+	Sid uint `gorm:"type:int(10) unsigned;not null;"`
+	Name string `gorm:"type:varchar(64);not null;"`
+	Status string `gorm:"type:varchar(64);not null;"`
+	Message string `gorm:"type:varchar(128);not null;"`
+	Removed int `gorm:"type:tinyint(1);not null;"`
+}
+
 func (c *Cluster) ToDto() (dto *ClusterDto, err error) {
 	var (
-		config ClusterConfig
+		config module.ClusterConf
 		bytes []byte
 
 	)
@@ -42,7 +67,7 @@ type ClusterDto struct {
 
 	Id uint `json:"id"`
 	Name string `json:"name"`
-	Config ClusterConfig `json:"config"`
+	Config module.ClusterConf `json:"config"`
 	CreatedAt module.Time `json:"createdAt"`
 	UpdatedAt module.Time `json:"updatedAt"`
 	Removed int `json:"-"`
@@ -89,10 +114,6 @@ func (l ClusterList)  Less(i, j int) bool {
 }
 
 
-type ClusterConfig struct {
-	Nodes []module.NodeRole `json:"nodes"`
-	Password string `json:"password"`
-}
 
 func (dto *ClusterDto) ToCluster() (c Cluster, err error){
 	var (
