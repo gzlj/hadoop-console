@@ -57,6 +57,14 @@ type ClusterConf struct {
 	HbaseConfig HbaseConfig `json:"hbaseConfig"`
 }
 
+type ClusteredHbaseConfig struct {
+	Cid int `json:"cid"`
+	Name string `json:"name"`
+	RoleToHosts map[string][]HostnameIp `json:"roleToHosts"`
+}
+
+
+
 
 
 type HdfsConfig struct {

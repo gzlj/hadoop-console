@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
 	"github.com/gzlj/hadoop-console/pkg/infra/job"
@@ -83,6 +84,24 @@ func ListClusters()(dtos []*db.ClusterDto, err error){
 	}
 	sort.Sort(db.ClusterList(dtos))
 
+	return
+}
+
+func ListTasksByCluster(cid uint) (dtos []*db.TaskDto, err error) {
+	var (
+		tasks []*db.Task
+		t *db.Task
+	dto *db.TaskDto
+	)
+	tasks = db.QueryTasksByClusterId(cid)
+	for _,t = range tasks {
+		dto, err = t.ToDto()
+		if err != nil {
+			continue
+		}
+		dtos = append(dtos, dto)
+	}
+	sort.Sort(db.TaskList(dtos))
 	return
 }
 
@@ -285,6 +304,12 @@ func StartInitHdfs(id int, cluster string, config module.ClusterConf) {
 		//cmdStderrPipe io.ReadCloser
 		cmd           *exec.Cmd
 		tid uint
+	    ss []*db.Service
+
+		hbaseSid uint
+		//sparkSid uint
+		//sqoopSid uint
+		servicesCount int
 	)
 	jobName = cluster +"-hdfs"
 
@@ -292,11 +317,18 @@ func StartInitHdfs(id int, cluster string, config module.ClusterConf) {
 	global.G_JobExcutingInfo[jobName]="created"
 	defer delete(global.G_JobExcutingInfo, jobName)
 	// insert a record to tasks table
+	// db.UpdateTaskStatus(tid, err)
 	tid, err = addClusterInitTask(uint(id))
 	if err != nil {
 		log.Println("Failed to insert HDFS task to db for cluster:",cluster)
 		goto FINISH
 	}
+	ss, err = GetServicesByCluster(uint(id))
+	if err != nil {
+		log.Println("Faild to get services for cluster:",cluster)
+		goto FINISH
+	}
+	servicesCount = len(ss)
 
 	log.Println("Job " + jobName + " is initializing")
 	status = module.Status{
@@ -356,16 +388,35 @@ func StartInitHdfs(id int, cluster string, config module.ClusterConf) {
 	}
 	err = cmd.Wait()
 
+	if servicesCount == 0 {
+		goto FINISH
+	}
+
+	// cluster --> get []service
+	for _, s:= range ss {
+
+		switch s.Name {
+		case "HBASE":
+			hbaseSid = s.ID
+		case "SPARK":
+			//hbaseSid = s.ID
+		case "SQOOP":
+			//hbaseSid = s.ID
+		}
+	}
 
 	// hbase spark and so on
 	//waitgroup
-	initComponent(filesAndCmds.HbaseJobName, filesAndCmds.HbaseCmdStr, filesAndCmds.HbaseLogfile)
-
+	if hbaseSid > 0 {
+		go initComponent(id, int(hbaseSid), filesAndCmds.HbaseJobName, filesAndCmds.HbaseCmdStr, filesAndCmds.HbaseLogfile)
+	}
 
 FINISH:
+	log.Println("Job is completely finished:", jobName)
 	status = job.ConstructFinalStatus(jobName, err)
 	job.UpdateStatusFile(status)
-	log.Println("Job is completely finished:", jobName)
+	db.UpdateTaskStatus(tid, err)
+
 }
 
 /*func initHbase(dto db.ClusterDto, filesAndCmds module.TaskFilesAndCmds) {
@@ -405,21 +456,45 @@ FINISH:
 	log.Println("Job is completely finished:", jobName)
 }*/
 
-func initComponent(jobName, cmdStr, logFile string) {
+func initComponent(cid int,sid int, jobName, cmdStr, logFile string) {
 	var (
 		cmdStdoutPipe io.ReadCloser
-		cmdStderrPipe io.ReadCloser
+		//cmdStderrPipe io.ReadCloser
 		cmd           *exec.Cmd
 		status module.Status
 		err error
+		tid uint
 	)
 	global.G_JobExcutingInfo[jobName]="created"
+	defer delete(global.G_JobExcutingInfo, jobName)
+	/*
+	global.G_JobExcutingInfo[jobName]="created"
+	defer delete(global.G_JobExcutingInfo, jobName)
+	// db.UpdateTaskStatus(tid, err)
+	tid, err = addClusterInitTask(uint(id))
+	 */
+	// add task record to db
+	tid, err = AddTaskToDb(uint(cid), uint(sid) , jobName, "Running", "")
+	if err != nil {
+		log.Println("Failed to create task recored in db:", err)
+		goto FINISH
+	}
 
 	cmd = exec.CommandContext(context.TODO(), "bash", "-c", cmdStr)
 	cmdStdoutPipe, _ = cmd.StdoutPipe()
-	cmdStderrPipe, _ = cmd.StderrPipe()
-	go job.SyncLog(cmdStdoutPipe, logFile, false)
-	go job.SyncLog(cmdStderrPipe, logFile, false)
+	//cmdStderrPipe, _ = cmd.StderrPipe()
+	//go job.SyncLog(cmdStdoutPipe, logFile, false)
+	//go job.SyncLog(cmdStderrPipe, logFile, false)
+	/*
+
+	cmdStdoutPipe, _ = cmd.StdoutPipe()
+	//cmdStderrPipe, _ = cmd.StderrPipe()
+	//go job.SyncLog(cmdStdoutPipe, filesAndCmds.HdfsLogfile, false)
+	//go job.SyncLog(cmdStderrPipe, filesAndCmds.HdfsLogfile, false)
+	go job.SyncLogToDb(cmdStdoutPipe, tid)
+	 */
+	go job.SyncLogToDb(cmdStdoutPipe, tid)
+
 	log.Println("Job " + jobName + " is Running")
 	status = module.Status{
 		Code:  200,
@@ -436,11 +511,120 @@ func initComponent(jobName, cmdStr, logFile string) {
 FINISH:
 	status = job.ConstructFinalStatus(jobName, err)
 	job.UpdateStatusFile(status)
+	db.UpdateTaskStatus(tid, err)
 	log.Println("Job is completely finished:", jobName)
 }
 
 
+func AddTaskToDb(clusterId, servcieId uint, taskName, status, message string) (tid uint, err error) {
+	task := db.Task{
+		Cid: clusterId,
+		Sid: servcieId,
+		Name: taskName,
+		Status: status,
+		Message: message,
+	}
+	err = db.G_db.Create(&task).Error
+	if err != nil {
+		log.Println("Failed to instert task record to tasks table:",err)
+	} else {
+		tid = task.ID
+	}
+	return
+}
 
+/*
+
+
+func addClusterInitTask(clusterId uint) (tid uint, err error) {
+	var (
+		ss []*db.Service
+		sid uint
+	)
+	ss ,err = db.GetServiceByNameAndClusterId("HDFS", clusterId)
+	if err != nil {
+		return
+	}
+	if len(ss) == 0 {
+		log.Println("Failed to get services from cluster.")
+	}
+
+	if len(ss) > 0 {
+		//s := ss[0]
+		sid = ss[0].ID
+
+		task := db.Task{
+			Cid: clusterId,
+			Sid: sid,
+			Name: "Bootstrap HDFS",
+			Status: "Running",
+			Message: "",
+		}
+		err = db.G_db.Create(&task).Error
+		if err != nil {
+			log.Println("Failed to instert task record to tasks table:",err)
+		}
+		if err == nil {
+			tid = task.ID
+		}
+	}
+	return
+}
+ */
+func GetServicesByCluster(cid uint) (ss []*db.Service, err error) {
+	ss, err = db.GetServiceByClusterId(cid)
+	return
+}
+
+/*
+for _, s = range ss {
+		if err = tx.Create(s).Error; err != nil {
+			tx.Rollback()
+			break
+		}
+	}
+
+ */
+
+func AddService(config module.ClusteredHbaseConfig) (err error) {
+	var (
+		bytes []byte
+		ss []*db.Service
+		s db.Service
+	)
+
+	if config.Cid == 0 {
+
+	}
+
+	//GetServiceByNameAndClusterId
+	ss, err = db.GetServiceByClusterId(uint(config.Cid))
+	if err != nil {
+		return
+	}
+
+	for _, tmp := range ss {
+		if tmp.Name == config.Name {
+			err = errors.New("Service Already exists: " + config.Name)
+			return
+		}
+	}
+
+
+	bytes, err = json.Marshal(config.RoleToHosts)
+	if err != nil {
+		return
+	}
+
+	s = db.Service{
+		Cid: uint(config.Cid),
+		Name: config.Name,
+		Config: string(bytes),
+	}
+	err = db.AddService(&s)
+
+	return
+}
 
 
 

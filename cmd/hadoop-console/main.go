@@ -74,8 +74,10 @@ func registryBasicApis(r *gin.Engine) {
 	r.POST("/heartbeat", handler.HandlerHeartBeat)
 	r.POST("/cluster/init", handler.HandlerInitHdfs)
 	r.GET("/cluster/log", handler.QueryJobLog)
-	r.POST("/task", handler.TestTask)
-
+	r.GET("/tasks", handler.QueryTasksByCluster)
+	r.GET("/logs", handler.QueryLogByTask)
+	//AddService
+	r.POST("/services", handler.AddService)
 }
 
 func main() {

@@ -33,6 +33,13 @@ type Log struct {
 	Removed int `gorm:"type:tinyint(1);not null;"`
 }
 
+type LogDto struct {
+	Id uint `json:"id"`
+	CreatedAt module.Time `json:"createdAt"`
+	StopedAt module.Time `json:"stopedAt"`
+	Content string `json:"content"`
+}
+
 type Task struct {
 	gorm.Model
 	Cid uint `gorm:"type:int(10) unsigned;not null;"`
@@ -42,6 +49,66 @@ type Task struct {
 	Message string `gorm:"type:varchar(128);not null;"`
 	Removed int `gorm:"type:tinyint(1);not null;"`
 }
+
+type TaskDto struct {
+	Id uint `json:"id"`
+	Name string `json:"name"`
+	Status string `json:"status"`
+	Message string `json:"message"`
+	CreatedAt module.Time `json:"createdAt"`
+	UpdatedAt module.Time `json:"updatedAt"`
+
+	Removed int `json:"-"`
+}
+
+
+
+/*
+
+type ClusterList []*ClusterDto
+
+func (l ClusterList)  Len() int  {
+	return len(l)
+}
+
+func (l ClusterList) Swap(i, j int) {
+	l[i], l[j] = l[j], l[i]
+}
+
+func (l ClusterList)  Less(i, j int) bool {
+	return l[j].Id > l[i].Id
+}
+
+ */
+
+type TaskList []*TaskDto
+
+func (t TaskList) Len() int  {
+	return len(t)
+}
+
+func (t TaskList) Swap(i, j int) {
+	t[i], t[j] = t[j], t[i]
+}
+
+func (t TaskList) Less(i, j int) bool {
+	return t[j].Id > t[i].Id
+}
+
+
+func (t *Task) ToDto() (dto *TaskDto, err error) {
+
+	dto = &TaskDto{
+		Id: t.ID,
+		Name: t.Name,
+		Status: t.Status,
+		Message: t.Message,
+		CreatedAt: module.Time(t.CreatedAt),
+		UpdatedAt: module.Time(t.UpdatedAt),
+	}
+	return
+}
+
 
 func (c *Cluster) ToDto() (dto *ClusterDto, err error) {
 	var (
@@ -72,6 +139,9 @@ type ClusterDto struct {
 	UpdatedAt module.Time `json:"updatedAt"`
 	Removed int `json:"-"`
 }
+
+
+
 
 /*type Time time.Time
 
@@ -130,3 +200,12 @@ func (dto *ClusterDto) ToCluster() (c Cluster, err error){
 	return
 }
 
+func (l *Log) ToDto() LogDto {
+
+	return LogDto{
+		Id: l.ID,
+		Content: l.Content,
+		CreatedAt: module.Time(l.CreatedAt),
+		StopedAt: module.Time(l.UpdatedAt),
+	}
+}

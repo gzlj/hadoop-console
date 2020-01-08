@@ -82,7 +82,7 @@ func ADDCluster(like *Cluster) (err error) {
 func GetServiceByClusterId(id uint) (ss []*Service, err error){
 
 	//G_db.Find(&clusters, "removed = ?", "0")
-	G_db.Find(&Service{}, "cid = ? AND removed = ?", id, "0")
+	G_db.Find(&ss, "cid = ? AND removed = ?", id, "0")
 	return
 }
 
@@ -184,10 +184,12 @@ func AppendSyncLog(taskId uint, bytes []byte) {
 	var (
 		err error
 		l   Log)
-	G_db.Table("logs").Where("tid = ? AND removed = ?", taskId, "0").Find(&l)
+	//G_db.Find(&ss, "cid = ? AND removed = ?", id, "0")
+	//G_db.Find(&l, "tid = ? AND removed = ?", taskId, "0")
+	//G_db.Table("logs").Where("tid = ? AND removed = ?", taskId, "0").Find(&l)
+	G_db.First(&l, "tid = ? AND removed = ?", taskId, "0")
 
 	if l.ID > 0 {
-		//append
 		l.Content = l.Content + string(bytes)
 		if err = G_db.Save(&l).Error; err != nil {
 			log.Println("Failed to update record to logs table for task:", taskId, ":", err)
@@ -196,7 +198,6 @@ func AppendSyncLog(taskId uint, bytes []byte) {
 	}
 	l.Tid = taskId
 	l.Content = string(bytes)
-	G_db.Create(&l)
 
 	// create
 	if err = G_db.Create(&l).Error; err != nil {
@@ -204,3 +205,41 @@ func AppendSyncLog(taskId uint, bytes []byte) {
 	}
 
 }
+
+func UpdateTaskStatus(id uint, err error) {
+	/*
+
+	var c Cluster
+	if err := G_db.Find(&c, id).Error; err != nil {
+		//log.Fatal(err)
+		return nil
+	}
+	 */
+	var (
+		task Task
+	)
+	task.ID = id
+
+	if err == nil {
+		// task sucess
+		G_db.Model(&task).Update("status", "Exitd")
+
+		return
+	}
+	G_db.Model(&task).Update("status", "Failed", "message", err.Error())
+
+}
+
+func QueryTasksByClusterId(id uint) (tasks []*Task) {
+
+	//G_db.Table("tasks").Where("cid = ? AND removed = ?", id, "0")
+	G_db.Find(&tasks, "cid = ? AND removed = ?", id, "0")
+	//log.Println("tasks:",tasks)
+	return
+}
+
+func AddService(s *Service) (err error) {
+	err =G_db.Create(s).Error
+	return
+}
+

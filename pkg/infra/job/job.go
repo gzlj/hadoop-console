@@ -6,6 +6,7 @@ import (
 	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
 	"github.com/gzlj/hadoop-console/pkg/module"
+	"errors"
 	"io"
 	"io/ioutil"
 	"log"
@@ -455,5 +456,15 @@ func QueryJobLogByName(jobName string) (result string) {
 		result = err.Error()
 	}
 	result = string(bytes)
+	return
+}
+
+func QueryLogByTaskId(tid uint) (dto db.LogDto, err error) {
+	var l db.Log
+	db.G_db.First(&l, "tid = ? AND removed = ?", 4, "0")
+	if l.ID == 0 {
+		return dto, errors.New("Log not found.")
+	}
+	dto = l.ToDto()
 	return
 }
