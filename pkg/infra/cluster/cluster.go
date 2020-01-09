@@ -4,15 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
 	"github.com/gzlj/hadoop-console/pkg/infra/job"
+	"github.com/gzlj/hadoop-console/pkg/infra/util"
 	"github.com/gzlj/hadoop-console/pkg/module"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -317,7 +320,7 @@ func StartInitHdfs(id int, cluster string, config module.ClusterConf) {
 	global.G_JobExcutingInfo[jobName]="created"
 	defer delete(global.G_JobExcutingInfo, jobName)
 	// insert a record to tasks table
-	// db.UpdateTaskStatus(tid, err)
+	// db.UpdateTaskStatusByErr(tid, err)
 	tid, err = addClusterInitTask(uint(id))
 	if err != nil {
 		log.Println("Failed to insert HDFS task to db for cluster:",cluster)
@@ -415,7 +418,7 @@ FINISH:
 	log.Println("Job is completely finished:", jobName)
 	status = job.ConstructFinalStatus(jobName, err)
 	job.UpdateStatusFile(status)
-	db.UpdateTaskStatus(tid, err)
+	db.UpdateTaskStatusByErr(tid, err)
 
 }
 
@@ -470,7 +473,7 @@ func initComponent(cid int,sid int, jobName, cmdStr, logFile string) {
 	/*
 	global.G_JobExcutingInfo[jobName]="created"
 	defer delete(global.G_JobExcutingInfo, jobName)
-	// db.UpdateTaskStatus(tid, err)
+	// db.UpdateTaskStatusByErr(tid, err)
 	tid, err = addClusterInitTask(uint(id))
 	 */
 	// add task record to db
@@ -511,7 +514,7 @@ func initComponent(cid int,sid int, jobName, cmdStr, logFile string) {
 FINISH:
 	status = job.ConstructFinalStatus(jobName, err)
 	job.UpdateStatusFile(status)
-	db.UpdateTaskStatus(tid, err)
+	db.UpdateTaskStatusByErr(tid, err)
 	log.Println("Job is completely finished:", jobName)
 }
 
@@ -622,6 +625,356 @@ func AddService(config module.ClusteredHbaseConfig) (err error) {
 		Config: string(bytes),
 	}
 	err = db.AddService(&s)
+
+	return
+}
+
+func QueryServiceById(id uint) (s *db.Service, err error) {
+	var service db.Service
+	if err := db.G_db.Find(&service, id).Error; err != nil {
+		return nil, err
+	}
+	return &service, nil
+}
+
+
+/**
+
+ */
+func RunSshByCluster(c db.Cluster) (err error) {
+
+	if c.ID == 0 ||c.Name == "" {
+		err = errors.New("Please specify a valied hadoop cluster.")
+		return
+	}
+
+	var (
+		lines []string
+		f     *os.File
+		fileName = global.HOSTS_DIR + c.Name + "-ssh" + global.HOSTS_FILE_SUFFIX
+		allHosts []string
+		allHostsAndIps string
+		config   module.ClusterConf
+		tid uint
+		bytes []byte
+		tStatus string
+	)
+
+	//json
+	err = json.Unmarshal([]byte(c.Config), &config)
+	if err != nil {
+		log.Println("json Unmarshal failed for config of cluster:", c.Name)
+		return
+	}
+
+	// insert ssh task record for cluster
+	tid, err = AddTaskToDb(c.ID, 0, "hadoop-ssh", "Running", "")
+	if err != nil {
+		log.Println("Inserting ssh task record failed for cluster:", c.Name)
+		return
+	}
+	defer func() {
+		if err == nil {
+			tStatus = "Exited"
+			db.UpdateTaskStatus(tid, tStatus, fmt.Sprint(allHosts))
+		} else {
+			tStatus = "Failed"
+			if len(allHosts) == 0 {
+				db.UpdateTaskStatus(tid, tStatus, err.Error())
+				return
+			}
+			db.UpdateTaskStatus(tid, tStatus, fmt.Sprint(allHosts))
+		}
+	}()
+
+	// ansible host ssh
+	err = util.BatchRunSsh(config.Password, config.Nodes)
+	if err != nil {
+		log.Println("Failed to sent ssh public key to target host:", err)
+		return
+	}
+
+	bytes, err = json.Marshal(config.Nodes)
+	if err != nil {
+		log.Println("Failed to generate ansible hosts file for cluster:", c.Name)
+		return
+	}
+	for _, n := range config.Nodes {
+		allHosts = append(allHosts, n.Ip)
+	}
+
+	// ansible hosts file for ssh play book
+	allHostsAndIps = string(bytes)
+	lines = []string{
+		"[all:vars]",
+		"all_hosts=\"" + allHostsAndIps + "\"",
+		"password=" + config.Password,
+	}
+	lines = append(lines, "[ssh]")
+	for _, n := range config.Nodes {
+		port := strconv.Itoa(n.Port)
+		if n.Port == 0 {
+			port = "22"
+		}
+		str := n.Ip + " ansible_ssh_port=" + port + " hostname=" + n.Hostname
+		lines = append(lines, str)
+	}
+	f, err = os.OpenFile(fileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	defer f.Close()
+	if err != nil {
+		log.Println("Cannot open file:", err)
+		return
+	}
+	f.WriteString(strings.Join(lines, "\r\n"))
+
+	// run ansible play book
+	cmdStr := "ansible-playbook " + global.SSH_YAML_FILE + " -i " + fileName
+	err = util.RunAndLog(tid, cmdStr)
+	return
+}
+
+func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
+	var (
+		ss []*db.Service
+		s *db.Service
+		c *db.Cluster
+		config   module.ClusterConf
+		bytes []byte
+		//allHostsAndIps string
+		
+		dataNodeHostnames    []string
+		dataNodeIps    []string
+		//hdfsConfigStr        string
+	    hbaseRegionHostnames []string
+
+		hbaseRegionIps []string
+		//hbaseMasterIps []string
+		//zkIps []string
+
+		journalNodeHostnames []string
+		nameNodeHostnames []string
+		nameNodeIps []string
+
+	    ansibleConfig module.AnsibleHostsConfig
+	)
+
+	// cid --> cluster ---> []service ---> /etc/ansible/target-hosts/{cluster}.hosts
+	c, err = db.QueryClusterById(int(cid))
+	if err != nil {
+		return
+	}
+
+
+
+	ss, err = GetServicesByCluster(cid)
+	if err != nil {
+		return
+	}
+	for _, tmp := range ss {
+		log.Println("tmp name:", tmp.Name)
+		switch tmp.Name {
+		case "HDFS":
+			var roleToHosts  = make(map[string][]module.HostnameIp)
+			//var roleToHosts2  = make(map[string][]interface{})
+			err = json.Unmarshal([]byte(tmp.Config), &roleToHosts)
+			if err != nil {
+				return
+			}
+			log.Println("roleToHosts in zookeeper:", roleToHosts)
+			if zks, ok :=roleToHosts["zookeepers"]; ok {
+				log.Println("has zookeepers----------")
+				for _, zk := range zks {
+					if ansibleConfig.Zk1 == "" {
+						ansibleConfig.Zk1 = zk.Ip
+						continue
+					}
+					if ansibleConfig.Zk2 == "" {
+						ansibleConfig.Zk2 = zk.Ip
+						continue
+					}
+					if ansibleConfig.Zk3 == "" {
+						ansibleConfig.Zk3 = zk.Ip
+						continue
+					}
+				}
+			}
+
+			if rss, ok :=roleToHosts["journalNodes"]; ok {
+				for _, tmp := range rss {
+					if ansibleConfig.Jn1 == "" {
+						ansibleConfig.Jn1 = tmp.Ip
+						ansibleConfig.HostNameForJn1 = tmp.Hostname
+						continue
+					}
+					if ansibleConfig.Jn2 == "" {
+						ansibleConfig.Jn2 = tmp.Ip
+						ansibleConfig.HostNameForJn2 = tmp.Hostname
+						continue
+					}
+					if ansibleConfig.Jn3 == "" {
+						ansibleConfig.Jn3 = tmp.Ip
+						ansibleConfig.HostNameForJn3 = tmp.Hostname
+						continue
+					}
+					journalNodeHostnames = append(journalNodeHostnames, tmp.Hostname)
+
+				}
+			}
+			//nameNodes
+			if rss, ok :=roleToHosts["nameNodes"]; ok {
+				for i, tmp := range rss {
+					if i == 0 {
+						ansibleConfig.Nn1 = tmp.Ip
+						ansibleConfig.HostNameForNn1 = tmp.Hostname
+					} else {
+						ansibleConfig.Nn2 = tmp.Ip
+						ansibleConfig.HostNameForNn2 = tmp.Hostname
+					}
+
+					nameNodeHostnames = append(nameNodeHostnames, tmp.Hostname)
+					nameNodeIps = append(nameNodeIps, tmp.Hostname)
+				}
+			}
+			if rss, ok :=roleToHosts["dateNodes"]; ok {
+				for _, tmp := range rss {
+
+					ansibleConfig.IpForDataNodes = append(ansibleConfig.IpForDataNodes, tmp.Ip)
+					ansibleConfig.HostNameForDataNodes = append(ansibleConfig.HostNameForDataNodes, tmp.Hostname)
+
+					dataNodeHostnames = append(dataNodeHostnames, tmp.Hostname)
+					dataNodeIps = append(dataNodeIps, tmp.Ip)
+				}
+			}
+
+			if rms, ok :=roleToHosts["resourceManagers"]; ok {
+				for i, rm := range rms {
+					if i == 0 {
+						ansibleConfig.Rm1 = rm.Ip
+						ansibleConfig.HostNameForRm1 = rm.Hostname
+					} else {
+						ansibleConfig.Rm2 = rm.Ip
+						ansibleConfig.HostNameForRm2 = rm.Hostname
+					}
+				}
+			}
+		}
+	}
+
+
+	s , err = QueryServiceById(sid)
+	if err != nil {
+		return
+	}
+
+
+	log.Println("s name: ", s.Name)
+	switch s.Name {
+	case "HBASE":
+		var roleToHosts  = make(map[string][]module.HostnameIp)
+		err = json.Unmarshal([]byte(s.Config), &roleToHosts)
+		if err != nil {
+			return
+		}
+		if rss, ok :=roleToHosts["regionServers"]; ok {
+			for _, rs := range rss {
+
+				ansibleConfig.HbaseRegionservers = append(ansibleConfig.HbaseMasters, rs)
+
+				//hbaseRegionHostnames = append(hbaseRegionHostnames, rs.Hostname)
+				//hbaseRegionIps = append(hbaseRegionIps, rs.Ip)
+			}
+		}
+		if masters, ok :=roleToHosts["masters"]; ok {
+			for _, m := range masters {
+				ansibleConfig.HbaseMasters = append(ansibleConfig.HbaseMasters, m)
+				//hbaseMasterIps = append(hbaseMasterIps, m.Ip)
+			}
+		}
+	}
+
+
+	err = json.Unmarshal([]byte(c.Config), &config)
+	if err != nil {
+		log.Println("json Unmarshal failed for config of cluster:", c.Name)
+		return
+	}
+
+	bytes, err = json.Marshal(config.Nodes)
+	if err != nil {
+		log.Println("Failed to generate ansible hosts file for cluster:", c.Name)
+		return
+	}
+
+	//ansibleConfig.IpForDataNodes = append(ansibleConfig.IpForDataNodes, n.Ip)
+
+	var allHostAndips []module.HostnameIp
+	for _, tmp :=range config.Nodes {
+		allHostAndips = append(allHostAndips, module.HostnameIp{
+			Ip: tmp.Ip,
+			Hostname: tmp.Hostname,
+		})
+	}
+
+
+	ansibleConfig.AllHostAndips = allHostAndips
+	ansibleConfig.Password = config.Password
+	ansibleConfig.Cluster = c.Name
+
+
+	// ansible hosts file for ssh play book
+	//allHostsAndIps = string(bytes)
+
+
+	lines = []string{
+		"[all:vars]",
+		"all_hosts=\"" + string(bytes) + "\"",
+		"zookeeper_server_1=" + ansibleConfig.Zk1,
+		"zookeeper_server_2=" + ansibleConfig.Zk2,
+		"zookeeper_server_3=" + ansibleConfig.Zk3,
+		"datanodes=" + strings.Replace(strings.Trim(fmt.Sprint(ansibleConfig.HostNameForDataNodes), "[]"), " ", ",", -1),
+		"journalnode_1=" + ansibleConfig.HostNameForJn1,
+		"journalnode_2=" + ansibleConfig.HostNameForJn2,
+		"journalnode_3=" + ansibleConfig.HostNameForJn3,
+		"namenode_1=" + ansibleConfig.HostNameForNn1,
+		"namenode_2=" + ansibleConfig.HostNameForNn2,
+		"resource_manager_1=" + ansibleConfig.HostNameForRm1,
+		"resource_manager_2=" + ansibleConfig.HostNameForRm2,
+		"password=" + ansibleConfig.Password,
+		"cluster=" + ansibleConfig.Cluster,
+		"hbase_regionservers=" + strings.Replace(strings.Trim(fmt.Sprint(hbaseRegionHostnames), "[]"), " ", ",", -1),
+		"[nn]",
+		ansibleConfig.Nn1 + " nn_role=nn1",
+		ansibleConfig.Nn2 + " nn_role=nn2",
+
+		"[jn]",
+		ansibleConfig.Jn1,
+		ansibleConfig.Jn2,
+		ansibleConfig.Jn3,
+
+		"[zk]",
+		ansibleConfig.Zk1 + " zk_role=zk1",
+		ansibleConfig.Zk2 + " zk_role=zk2",
+		ansibleConfig.Zk3 + " zk_role=zk3",
+	}
+
+	lines = append(lines, "[dn]")
+	for _, ip := range ansibleConfig.IpForDataNodes {
+		lines = append(lines, ip)
+	}
+	lines = append(lines, "[hbase]")
+
+	for _, ip := range hbaseRegionIps {
+		for _, node := range ansibleConfig.HbaseMasters {
+			if node.Ip == ip {
+				ip = ip + " hbase_role_master=true"
+				break
+			}
+
+		}
+		lines = append(lines, ip)
+	}
+
+	log.Println("---------------------ansibleConfig: ", ansibleConfig)
 
 	return
 }

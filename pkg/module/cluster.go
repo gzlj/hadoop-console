@@ -31,6 +31,11 @@ type HostnameIp struct {
 	Ip       string `json:"ip"`
 }
 
+type HostIpPort struct {
+	HostnameIp
+	Port int `json:"port"`
+}
+
 type NodeRole struct {
 	HostnameIp
 	Roles []string `json:"roles"`
@@ -50,11 +55,11 @@ type NodeHeartBeat struct {
 
 
 type ClusterConf struct {
-	Nodes []NodeRole `json:"nodes"`
-	Password string `json:"password"`
+	Nodes []HostIpPort `json:"nodes"`
+	Password string `json:"password,omitempty"`
 
-	HdfsConfig HdfsConfig `json:"hdfsConfig"`
-	HbaseConfig HbaseConfig `json:"hbaseConfig"`
+	HdfsConfig *HdfsConfig `json:"hdfsConfig,omitempty"`
+	HbaseConfig *HbaseConfig `json:"hbaseConfig,omitempty"`
 }
 
 type ClusteredHbaseConfig struct {
@@ -69,17 +74,17 @@ type ClusteredHbaseConfig struct {
 
 type HdfsConfig struct {
 	//Name string `json:"name"`
-	Zookeepers []HostnameIp `json:"zookeepers"`
-	ResourceManagers []HostnameIp `json:"resourceManagers"`
-	JournalNodes []HostnameIp `json:"journalNodes"`
-	NameNodes []HostnameIp `json:"nameNodes"`
-	DataNodes []HostnameIp `json:"dataNodes"`
+	Zookeepers []HostnameIp `json:"zookeepers,omitempty"`
+	ResourceManagers []HostnameIp `json:"resourceManagers,omitempty"`
+	JournalNodes []HostnameIp `json:"journalNodes,omitempty"`
+	NameNodes []HostnameIp `json:"nameNodes,omitempty"`
+	DataNodes []HostnameIp `json:"dataNodes,omitempty"`
 }
 
 type HbaseConfig struct {
 	//Name string `json:"name"`
-	RegionServers []HostnameIp `json:"regionServers"`
-	Masters []HostnameIp `json:"masters"`
+	RegionServers []HostnameIp `json:"regionServers,omitempty"`
+	Masters []HostnameIp `json:"masters,omitempty"`
 }
 
 type Endpoint struct {

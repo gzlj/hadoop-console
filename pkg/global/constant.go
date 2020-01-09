@@ -41,6 +41,8 @@ const (
 	HA_MASTER3_JOIN_YAML_FILE = WORKING_DIR + "ha-master3-join.yaml"
 	HA_MASTER_JOIN_YAML_FILE = WORKING_DIR + "ha-master-join.yaml"
 
+	SSH_YAML_FILE = WORKING_DIR + "ssh.yaml"
+
 	// /etc/ansible/hdfs.yaml
 	HADOOP_HDFS_YAML_FILE = WORKING_DIR + "hdfs.yaml"
 	HBASE_YAML_FILE = WORKING_DIR + "hbase.yaml"

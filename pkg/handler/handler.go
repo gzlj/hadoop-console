@@ -41,10 +41,10 @@ func Test(c *gin.Context) {
 
 func HandlerCreateCluster(c *gin.Context) {
 	var (
-		dto      db.ClusterDto
-		err      error
-		cluster  db.Cluster
-		response global.Response
+		dto           db.ClusterDto
+		err           error
+		hadoopCluster db.Cluster
+		response      global.Response
 	)
 	if err = c.ShouldBindJSON(&dto); err != nil {
 		response = global.BuildResponse(400, "Requet body is not correct.", nil)
@@ -52,16 +52,21 @@ func HandlerCreateCluster(c *gin.Context) {
 		return
 	}
 
-	if cluster, err = dto.ToCluster(); err != nil {
+	if hadoopCluster, err = dto.ToCluster(); err != nil {
 		response = global.BuildResponse(400, "Convert failed.Requet body is not correct.", nil)
 		c.JSON(200, response)
 		return
 	}
 
-	if err = db.ADDCluster(&cluster); err != nil {
-		response = global.BuildResponse(500, "Cannot create cluster in db: "+err.Error(), nil)
+	if err = db.ADDCluster(&hadoopCluster); err != nil {
+		response = global.BuildResponse(500, "Cannot create hadoopCluster in db: "+err.Error(), nil)
 		//c.JSON(500, "cannot create like in db.")
 	}
+
+	// hadoop cluster ssh
+	go cluster.RunSshByCluster(hadoopCluster)
+
+	response = global.BuildResponse(200, "OK", nil)
 	c.JSON(200, response)
 }
 
@@ -143,8 +148,8 @@ func HandlerInitHdfs(c *gin.Context) {
 	}
 
 	// get record from db
-	record = db.QueryById(id)
-	if record == nil {
+	record, err = db.QueryClusterById(id)
+	if err != nil || record == nil {
 		// not found
 		response = global.BuildResponse(404, "Cluster not found.", nil)
 		c.JSON(200, response)
@@ -206,7 +211,7 @@ func QueryTasksByCluster(c *gin.Context) {
 		err      error
 	)
 
-	id, err = strconv.Atoi(c.Query("id"))
+	id, err = strconv.Atoi(c.Query("cid"))
 	if err != nil {
 		response = global.BuildResponse(400, "Please specify cluster id.", nil)
 		c.JSON(200, response)
@@ -281,6 +286,28 @@ func AddService(c *gin.Context){
 		c.JSON(200, response)
 		return
 	}
+
+	// go start to install service
+
 	response = global.BuildResponse(200, "OK", config)
+	c.JSON(200, response)
+}
+
+func TestStarService(c *gin.Context) {
+
+	var (
+		response global.Response
+		cid       int
+		sid       int
+		err      error
+	)
+	cid, err = strconv.Atoi(c.Query("cid"))
+	sid, err = strconv.Atoi(c.Query("sid"))
+
+	lines, err := cluster.GenerateHostsFileByCluster(uint(cid), uint(sid))
+	if err != nil {
+		response = global.BuildResponse(400, "ERROR", lines)
+	}
+	response = global.BuildResponse(200, "OK", lines)
 	c.JSON(200, response)
 }

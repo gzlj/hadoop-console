@@ -79,7 +79,7 @@ func GenerateHostFileContent(cluster string, config module.ClusterConf) (lines [
 		ansibleConfig module.AnsibleHostsConfig
 	)
 
-	ansibleConfig = getAnsibleHostsConfig(cluster, config)
+	ansibleConfig = GetAnsibleHostsConfig(cluster, config)
 	bytes, err = json.Marshal(ansibleConfig.AllHostAndips)
 	if err != nil {
 		log.Println("json Marshal Error happend when generate ansible hosts file:", err)
@@ -147,7 +147,7 @@ func GenerateHostFileContent(cluster string, config module.ClusterConf) (lines [
 	return
 }
 
-func getAnsibleHostsConfig(cluster string, config module.ClusterConf) (ansibleConfig module.AnsibleHostsConfig){
+func GetAnsibleHostsConfig(cluster string, config module.ClusterConf) (ansibleConfig module.AnsibleHostsConfig){
 	var ipMap map[string]module.HostnameIp = make(map[string]module.HostnameIp)
 	var hostAndips []module.HostnameIp
 	//zookeeper
@@ -440,8 +440,10 @@ func SyncLogToDb(reader io.ReadCloser, tid uint) {
 				break
 			}
 		}
-			db.AppendSyncLog(tid, buf[:strNum])
-			time.Sleep(time.Duration(3) * time.Second)
+		log.Println("SyncLogToDb: ", string(buf[:strNum]))
+		log.Println("SyncLogToDb all: ", string(buf))
+		db.AppendSyncLog(tid, buf[:strNum])
+		time.Sleep(time.Duration(1) * time.Second)
 		}
 }
 

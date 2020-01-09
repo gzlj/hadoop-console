@@ -135,13 +135,13 @@ func GetServicesFromCluster(c *Cluster) (ss []*Service, err error) {
 	return
 }
 
-func QueryById(id int) *Cluster {
+func QueryClusterById(id int) (*Cluster, error) {
 	var c Cluster
 	if err := G_db.Find(&c, id).Error; err != nil {
 		//log.Fatal(err)
-		return nil
+		return nil, err
 	}
-	return &c
+	return &c, nil
 }
 
 func ListClusters() (clusters []*Cluster) {
@@ -206,7 +206,7 @@ func AppendSyncLog(taskId uint, bytes []byte) {
 
 }
 
-func UpdateTaskStatus(id uint, err error) {
+func UpdateTaskStatusByErr(id uint, err error) {
 	/*
 
 	var c Cluster
@@ -227,8 +227,17 @@ func UpdateTaskStatus(id uint, err error) {
 		return
 	}
 	G_db.Model(&task).Update("status", "Failed", "message", err.Error())
-
 }
+
+func UpdateTaskStatus(id uint, status, message string) {
+	var (
+		task Task
+	)
+	task.ID = id
+	G_db.Model(&task).Update(map[string]interface{}{"status": status, "message": message})
+	//G_db.Model(&task).Update("status", status, "message", message)
+}
+
 
 func QueryTasksByClusterId(id uint) (tasks []*Task) {
 
