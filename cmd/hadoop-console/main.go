@@ -78,9 +78,12 @@ func registryBasicApis(r *gin.Engine) {
 	r.GET("/logs", handler.QueryLogByTask)
 	//AddService
 	r.POST("/services", handler.AddService)
+	r.GET("/service/detail", handler.QueryServiceDetail)
+	r.GET("/services", handler.ListServiceByCluster)
+	//InitService
+	r.POST("/services/init", handler.InitService)
 
-	//TestStarService
-	r.POST("/services/start", handler.TestStarService)
+	r.GET("/hosts", handler.GetHostsFile)
 }
 
 func main() {

@@ -36,9 +36,9 @@ func ADDCluster(like *Cluster) (err error) {
 	var (
 		count  int
 
-		ss []*Service
+		//ss []*Service
 
-		s *Service
+		//s *Service
 	)
 	G_db.Model(Cluster{
 		Name: like.Name,
@@ -58,7 +58,7 @@ func ADDCluster(like *Cluster) (err error) {
 		return
 	}
 	// cluster --> []service
-	ss, err = GetServicesFromCluster(like)
+	/*ss, err = GetServicesFromCluster(like)
 	if err != nil {
 		log.Println("Failed cluster for ", like.Name,":", err)
 		return
@@ -73,7 +73,7 @@ func ADDCluster(like *Cluster) (err error) {
 	if err != nil {
 		log.Println("Failed cluster for ", like.Name,":", err)
 		return
-	}
+	}*/
 	log.Print("Create cluster successully:", like.Name)
 	tx.Commit()
 	return nil
@@ -222,7 +222,7 @@ func UpdateTaskStatusByErr(id uint, err error) {
 
 	if err == nil {
 		// task sucess
-		G_db.Model(&task).Update("status", "Exitd")
+		G_db.Model(&task).Update("status", "Exited")
 
 		return
 	}
@@ -246,6 +246,15 @@ func QueryTasksByClusterId(id uint) (tasks []*Task) {
 	//log.Println("tasks:",tasks)
 	return
 }
+
+func QueryLatestTasksByClusterIdLimit(id, limit uint) (tasks []*Task){
+	//.Limit(limit)
+	G_db.Order("created_at DESC").Where("cid = ? AND removed = ?", id, "0").Limit(limit).Find(&tasks)
+
+	return
+
+}
+
 
 func AddService(s *Service) (err error) {
 	err =G_db.Create(s).Error

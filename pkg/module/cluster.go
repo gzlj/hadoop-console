@@ -62,10 +62,15 @@ type ClusterConf struct {
 	HbaseConfig *HbaseConfig `json:"hbaseConfig,omitempty"`
 }
 
-type ClusteredHbaseConfig struct {
+type ClusteredServiceConfig struct {
+	Id int `json:"id"`
 	Cid int `json:"cid"`
 	Name string `json:"name"`
 	RoleToHosts map[string][]HostnameIp `json:"roleToHosts"`
+}
+
+type ServiceDetail struct {
+	ClusteredServiceConfig
 }
 
 

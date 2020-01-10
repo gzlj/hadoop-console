@@ -26,6 +26,16 @@ type Service struct {
 	Removed int `gorm:"type:tinyint(1);not null;"`
 }
 
+type ServiceDto struct {
+	Id uint `json:"id"`
+	Cid uint `gorm:"type:int(10) unsigned;not null;"`
+	Name string `gorm:"type:varchar(64);not null;"`
+	//Config string `gorm:"type:varchar(4096);not null;"`
+	//Removed int `gorm:"type:tinyint(1);not null;"`
+	CreatedAt module.Time `json:"createdAt"`
+	UpdatedAt module.Time `json:"updatedAt"`
+}
+
 type Log struct {
 	gorm.Model
 	Tid uint `gorm:"type:int(10) unsigned;not null;"`
@@ -106,6 +116,18 @@ func (t *Task) ToDto() (dto *TaskDto, err error) {
 		CreatedAt: module.Time(t.CreatedAt),
 		UpdatedAt: module.Time(t.UpdatedAt),
 	}
+	return
+}
+
+func (s *Service) ToDto() (dto *ServiceDto, err error) {
+	dto = &ServiceDto{
+		Id: s.ID,
+		Cid: s.Cid,
+		Name: s.Name,
+		CreatedAt: module.Time(s.CreatedAt),
+		UpdatedAt: module.Time(s.UpdatedAt),
+	}
+
 	return
 }
 

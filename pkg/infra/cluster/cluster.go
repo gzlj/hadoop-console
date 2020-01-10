@@ -96,7 +96,10 @@ func ListTasksByCluster(cid uint) (dtos []*db.TaskDto, err error) {
 		t *db.Task
 	dto *db.TaskDto
 	)
-	tasks = db.QueryTasksByClusterId(cid)
+
+	//QueryLatestTasksByClusterIdLimit
+	tasks = db.QueryLatestTasksByClusterIdLimit(cid, 3)
+	//tasks = db.QueryTasksByClusterId(cid)
 	for _,t = range tasks {
 		dto, err = t.ToDto()
 		if err != nil {
@@ -104,9 +107,33 @@ func ListTasksByCluster(cid uint) (dtos []*db.TaskDto, err error) {
 		}
 		dtos = append(dtos, dto)
 	}
-	sort.Sort(db.TaskList(dtos))
+	//sort.Reverse(db.TaskList(dtos))
+	//sort.Sort(db.TaskList(dtos))
 	return
 }
+
+func ListLatestTasksByClusterLimit(cid, limit uint) (dtos []*db.TaskDto, err error) {
+	var (
+		tasks []*db.Task
+		t *db.Task
+		dto *db.TaskDto
+	)
+
+	//QueryLatestTasksByClusterIdLimit
+	tasks = db.QueryLatestTasksByClusterIdLimit(cid, limit)
+	//tasks = db.QueryTasksByClusterId(cid)
+	for _,t = range tasks {
+		dto, err = t.ToDto()
+		if err != nil {
+			continue
+		}
+		dtos = append(dtos, dto)
+	}
+	//sort.Reverse(db.TaskList(dtos))
+	//sort.Sort(db.TaskList(dtos))
+	return
+}
+
 
 func SyncClusterFromDb() (err error){
 	//ClusterRuntimeInfos = make(map[string]module.ClusterRuntimeInfo)
@@ -496,7 +523,7 @@ func initComponent(cid int,sid int, jobName, cmdStr, logFile string) {
 	//go job.SyncLog(cmdStderrPipe, filesAndCmds.HdfsLogfile, false)
 	go job.SyncLogToDb(cmdStdoutPipe, tid)
 	 */
-	go job.SyncLogToDb(cmdStdoutPipe, tid)
+	//go job.SyncLogToDb(cmdStdoutPipe, tid)
 
 	log.Println("Job " + jobName + " is Running")
 	status = module.Status{
@@ -509,6 +536,7 @@ func initComponent(cid int,sid int, jobName, cmdStr, logFile string) {
 	if err != nil {
 		goto FINISH
 	}
+	job.SyncLogToDb(cmdStdoutPipe, tid)
 	err = cmd.Wait()
 
 FINISH:
@@ -520,6 +548,19 @@ FINISH:
 
 
 func AddTaskToDb(clusterId, servcieId uint, taskName, status, message string) (tid uint, err error) {
+
+	// check the same task in the same cluster
+
+	var (
+		count  int
+	)
+	db.G_db.Model(db.Task{}).Where("name = ? AND removed = ?", taskName, "0").Not("status", []string{"Exited", "Failed"}).Count(&count)
+
+	if count > 0  {
+		err = errors.New("Running Task already exists: "+  taskName)
+		return
+	}
+
 	task := db.Task{
 		Cid: clusterId,
 		Sid: servcieId,
@@ -589,11 +630,11 @@ for _, s = range ss {
 
  */
 
-func AddService(config module.ClusteredHbaseConfig) (err error) {
+func AddService(config module.ClusteredServiceConfig) (s *db.Service, err error) {
 	var (
 		bytes []byte
 		ss []*db.Service
-		s db.Service
+		//s db.Service
 	)
 
 	if config.Cid == 0 {
@@ -619,12 +660,12 @@ func AddService(config module.ClusteredHbaseConfig) (err error) {
 		return
 	}
 
-	s = db.Service{
+	s = &db.Service{
 		Cid: uint(config.Cid),
 		Name: config.Name,
 		Config: string(bytes),
 	}
-	err = db.AddService(&s)
+	err = db.AddService(s)
 
 	return
 }
@@ -733,11 +774,12 @@ func RunSshByCluster(c db.Cluster) (err error) {
 	return
 }
 
-func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
+func GenerateHostsFileByCluster(sid uint) (lines []string, c *db.Cluster,err error){
 	var (
+		cid uint
 		ss []*db.Service
 		s *db.Service
-		c *db.Cluster
+		//c *db.Cluster
 		config   module.ClusterConf
 		bytes []byte
 		//allHostsAndIps string
@@ -745,9 +787,10 @@ func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
 		dataNodeHostnames    []string
 		dataNodeIps    []string
 		//hdfsConfigStr        string
-	    hbaseRegionHostnames []string
+	    //hbaseRegionHostnames []string
 
-		hbaseRegionIps []string
+
+		//hbaseRegionIps []string
 		//hbaseMasterIps []string
 		//zkIps []string
 
@@ -755,9 +798,19 @@ func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
 		nameNodeHostnames []string
 		nameNodeIps []string
 
-	    ansibleConfig module.AnsibleHostsConfig
+	    hbaseRegionHostnames []string
+		hbaseRegionIps []string
+		hbaseMasterIps []string
+
+
+	ansibleConfig module.AnsibleHostsConfig
 	)
 
+	s , err = QueryServiceById(sid)
+	if err != nil {
+		return
+	}
+	cid = s.Cid
 	// cid --> cluster ---> []service ---> /etc/ansible/target-hosts/{cluster}.hosts
 	c, err = db.QueryClusterById(int(cid))
 	if err != nil {
@@ -773,16 +826,15 @@ func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
 	for _, tmp := range ss {
 		log.Println("tmp name:", tmp.Name)
 		switch tmp.Name {
-		case "HDFS":
+		case "ZOOKEEPER":
 			var roleToHosts  = make(map[string][]module.HostnameIp)
 			//var roleToHosts2  = make(map[string][]interface{})
 			err = json.Unmarshal([]byte(tmp.Config), &roleToHosts)
 			if err != nil {
 				return
 			}
-			log.Println("roleToHosts in zookeeper:", roleToHosts)
 			if zks, ok :=roleToHosts["zookeepers"]; ok {
-				log.Println("has zookeepers----------")
+				//log.Println("has zookeepers----------")
 				for _, zk := range zks {
 					if ansibleConfig.Zk1 == "" {
 						ansibleConfig.Zk1 = zk.Ip
@@ -798,6 +850,15 @@ func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
 					}
 				}
 			}
+		case "HDFS":
+			var roleToHosts  = make(map[string][]module.HostnameIp)
+			//var roleToHosts2  = make(map[string][]interface{})
+			err = json.Unmarshal([]byte(tmp.Config), &roleToHosts)
+			if err != nil {
+				return
+			}
+			//log.Println("roleToHosts in zookeeper:", roleToHosts)
+
 
 			if rss, ok :=roleToHosts["journalNodes"]; ok {
 				for _, tmp := range rss {
@@ -845,7 +906,13 @@ func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
 					dataNodeIps = append(dataNodeIps, tmp.Ip)
 				}
 			}
-
+		/*case "YARN":
+			var roleToHosts  = make(map[string][]module.HostnameIp)
+			//var roleToHosts2  = make(map[string][]interface{})
+			err = json.Unmarshal([]byte(tmp.Config), &roleToHosts)
+			if err != nil {
+				return
+			}
 			if rms, ok :=roleToHosts["resourceManagers"]; ok {
 				for i, rm := range rms {
 					if i == 0 {
@@ -857,14 +924,17 @@ func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
 					}
 				}
 			}
+			//nodeManagers
+			if nms, ok :=roleToHosts["nodeManagers"]; ok {
+				for _, nm := range nms {
+					ansibleConfig.IpForNodeManagers = append(ansibleConfig.IpForNodeManagers, nm.Ip)
+				}
+			}*/
 		}
 	}
 
 
-	s , err = QueryServiceById(sid)
-	if err != nil {
-		return
-	}
+
 
 
 	log.Println("s name: ", s.Name)
@@ -875,6 +945,7 @@ func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
 		if err != nil {
 			return
 		}
+		log.Println("hbase config:", roleToHosts)
 		if rss, ok :=roleToHosts["regionServers"]; ok {
 			for _, rs := range rss {
 
@@ -890,7 +961,34 @@ func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
 				//hbaseMasterIps = append(hbaseMasterIps, m.Ip)
 			}
 		}
+	case "YARN":
+		var roleToHosts  = make(map[string][]module.HostnameIp)
+		err = json.Unmarshal([]byte(s.Config), &roleToHosts)
+		if err != nil {
+			return
+		}
+		if rms, ok :=roleToHosts["resourceManagers"]; ok {
+			for i, rm := range rms {
+				if i == 0 {
+					ansibleConfig.Rm1 = rm.Ip
+					ansibleConfig.HostNameForRm1 = rm.Hostname
+					ansibleConfig.IpForRm1 = rm.Ip
+				} else {
+					ansibleConfig.Rm2 = rm.Ip
+					ansibleConfig.HostNameForRm2 = rm.Hostname
+					ansibleConfig.IpForRm2 = rm.Ip
+				}
+			}
+		}
+		if nms, ok :=roleToHosts["nodeManagers"]; ok {
+			for _, nm := range nms {
+				ansibleConfig.IpForNodeManagers = append(ansibleConfig.IpForNodeManagers, nm.Ip)
+			}
+		}
 	}
+
+
+
 
 
 	err = json.Unmarshal([]byte(c.Config), &config)
@@ -919,6 +1017,18 @@ func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
 	ansibleConfig.AllHostAndips = allHostAndips
 	ansibleConfig.Password = config.Password
 	ansibleConfig.Cluster = c.Name
+
+	for _, r := range ansibleConfig.HbaseRegionservers {
+		hbaseRegionHostnames = append(hbaseRegionHostnames, r.Hostname)
+	}
+	for _, r := range ansibleConfig.HbaseRegionservers {
+		hbaseRegionIps = append(hbaseRegionIps, r.Ip)
+	}
+
+	for _, m := range ansibleConfig.HbaseMasters {
+		hbaseMasterIps = append(hbaseMasterIps, m.Ip)
+	}
+
 
 
 	// ansible hosts file for ssh play book
@@ -961,23 +1071,167 @@ func GenerateHostsFileByCluster(cid, sid uint) (lines []string, err error){
 	for _, ip := range ansibleConfig.IpForDataNodes {
 		lines = append(lines, ip)
 	}
-	lines = append(lines, "[hbase]")
+	lines = append(lines, "[hbase-master]")
 
-	for _, ip := range hbaseRegionIps {
-		for _, node := range ansibleConfig.HbaseMasters {
+	for _, ip := range hbaseMasterIps {
+		/*for _, node := range ansibleConfig.HbaseMasters {
 			if node.Ip == ip {
 				ip = ip + " hbase_role_master=true"
 				break
 			}
 
-		}
+		}*/
 		lines = append(lines, ip)
 	}
 
-	log.Println("---------------------ansibleConfig: ", ansibleConfig)
+	lines = append(lines, "[hbase-regionserver]")
+	for _, ip := range hbaseRegionIps {
+		lines = append(lines, ip)
+	}
+
+
+	lines = append(lines, "[yarn-resourcemanager]")
+	lines = append(lines,ansibleConfig.IpForRm1)
+	lines = append(lines,ansibleConfig.IpForRm2)
+
+	lines = append(lines, "[yarn-nodemanager]")
+	for _, ip := range ansibleConfig.IpForNodeManagers {
+		lines = append(lines, ip)
+	}
+
+
+	//log.Println("---------------------ansibleConfig: ", ansibleConfig)
 
 	return
 }
+
+func InitService(s *db.Service) (err error) {
+	var (
+		lines []string
+		hostsFile string
+		c *db.Cluster
+		f     *os.File
+		cmdStr string
+		tid uint
+	)
+	if s == nil || s.ID <= 0 || s.Name == "" {
+		err = errors.New("Invalid Service Object")
+		return
+	}
+
+	lines, c, err = GenerateHostsFileByCluster(s.ID)
+	if err != nil {
+		return
+	}
+	switch s.Name {
+
+	case "HDFS":
+
+	case "HBASE":
+		hostsFile = global.HOSTS_DIR + c.Name + "-hbase" + global.HOSTS_FILE_SUFFIX
+		cmdStr = "ansible-playbook " + global.HBASE_YAML_FILE + " -i " + hostsFile
+		tid, err = AddTaskToDb(c.ID, s.ID, "hbase-init", "Running", "")
+		if err !=nil {
+			log.Printf("Init service %s Failed: %s", s.Name, err)
+			return
+		}
+	}
+	f, err = os.OpenFile(hostsFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	defer func() {
+		if (tid > 0) {
+			db.UpdateTaskStatusByErr(tid, err)
+		}
+	} ()
+
+
+	if err != nil {
+		log.Println("Cannot open file:", err)
+		return
+	}
+	defer f.Close()
+	f.WriteString(strings.Join(lines, "\r\n"))
+
+	// run ansible play book
+	err = util.RunAndLog(tid, cmdStr)
+	return
+}
+
+//ClusteredServiceConfig
+
+func QueryServiceDetail(sid uint) (config *module.ServiceDetail, err error){
+
+	var (
+		s *db.Service
+	)
+	s , err = QueryServiceById(sid)
+	if err != nil {
+		return
+	}
+	var roleToHosts  = make(map[string][]module.HostnameIp)
+	err = json.Unmarshal([]byte(s.Config), &roleToHosts)
+	if err != nil {
+		return
+	}
+	c := module.ServiceDetail{}
+	c.Id =  int(s.ID)
+	c.Cid = int(s.Cid)
+	c.Name = s.Name
+	c.RoleToHosts = roleToHosts
+	config = &c
+	return
+}
+
+/*
+switch s.Name {
+	case "HBASE":
+		var roleToHosts  = make(map[string][]module.HostnameIp)
+		err = json.Unmarshal([]byte(s.Config), &roleToHosts)
+		if err != nil {
+			return
+		}
+		log.Println("hbase config:", roleToHosts)
+		if rss, ok :=roleToHosts["regionServers"]; ok {
+			for _, rs := range rss {
+
+				ansibleConfig.HbaseRegionservers = append(ansibleConfig.HbaseMasters, rs)
+
+				//hbaseRegionHostnames = append(hbaseRegionHostnames, rs.Hostname)
+				//hbaseRegionIps = append(hbaseRegionIps, rs.Ip)
+			}
+		}
+		if masters, ok :=roleToHosts["masters"]; ok {
+			for _, m := range masters {
+				ansibleConfig.HbaseMasters = append(ansibleConfig.HbaseMasters, m)
+				//hbaseMasterIps = append(hbaseMasterIps, m.Ip)
+			}
+		}
+	case "YARN":
+		var roleToHosts  = make(map[string][]module.HostnameIp)
+		err = json.Unmarshal([]byte(s.Config), &roleToHosts)
+		if err != nil {
+			return
+		}
+		if rms, ok :=roleToHosts["resourceManagers"]; ok {
+			for i, rm := range rms {
+				if i == 0 {
+					ansibleConfig.Rm1 = rm.Ip
+					ansibleConfig.HostNameForRm1 = rm.Hostname
+					ansibleConfig.IpForRm1 = rm.Ip
+				} else {
+					ansibleConfig.Rm2 = rm.Ip
+					ansibleConfig.HostNameForRm2 = rm.Hostname
+					ansibleConfig.IpForRm2 = rm.Ip
+				}
+			}
+		}
+		if nms, ok :=roleToHosts["nodeManagers"]; ok {
+			for _, nm := range nms {
+				ansibleConfig.IpForNodeManagers = append(ansibleConfig.IpForNodeManagers, nm.Ip)
+			}
+		}
+	}
+
+ */
 
 
 

@@ -56,10 +56,15 @@ type AnsibleHostsConfig struct {
 
 	HostNameForRm1 string `json:"HostNameForRm1"`
 	HostNameForRm2 string `json:"HostNameForRm2"`
+	IpForRm1 string `json:"ipForRm1"`
+	IpForRm2 string `json:"ipForRm2"`
 
 
 	AllHostAndips []HostnameIp `json:"allHostAndips"`
 
 	HbaseMasters []HostnameIp `json:"hbaseMasters"`
 	HbaseRegionservers []HostnameIp `json:"regionservers"`
+
+	IpForNodeManagers []string `json:"nodeManagers"`
+	HostnameForResourceManager []string `json:"ResourceManagerHostnames"`
 }

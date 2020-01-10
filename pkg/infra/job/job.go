@@ -2,11 +2,11 @@ package job
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gzlj/hadoop-console/pkg/global"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
 	"github.com/gzlj/hadoop-console/pkg/module"
-	"errors"
 	"io"
 	"io/ioutil"
 	"log"
@@ -440,10 +440,10 @@ func SyncLogToDb(reader io.ReadCloser, tid uint) {
 				break
 			}
 		}
-		log.Println("SyncLogToDb: ", string(buf[:strNum]))
-		log.Println("SyncLogToDb all: ", string(buf))
+		//log.Println("SyncLogToDb: ", string(buf[:strNum]))
+		//log.Println("SyncLogToDb all: ", string(buf))
 		db.AppendSyncLog(tid, buf[:strNum])
-		time.Sleep(time.Duration(1) * time.Second)
+		time.Sleep(time.Duration(2) * time.Second)
 		}
 }
 

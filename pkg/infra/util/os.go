@@ -34,12 +34,22 @@ func RunAndLog(tid uint, cmdStr string) (err error) {
 	cmd := exec.CommandContext(context.TODO(), "bash", "-c", cmdStr)
 	cmdStdoutPipe, _ = cmd.StdoutPipe()
 	cmd.Stderr = cmd.Stdout
-	go job.SyncLogToDb(cmdStdoutPipe, tid)
+
 	err = cmd.Start()
 	if err != nil {
 		log.Println("cmd.Start() errror: ", err)
 		return
 	}
+	job.SyncLogToDb(cmdStdoutPipe, tid)
+	/*reader := bufio.NewReader(cmdStdoutPipe)
+	for {
+		line, err2 := reader.ReadString('\n')
+		if err2 != nil || io.EOF == err2 {
+			break
+		}
+		log.Println(line)
+	}*/
+	//time.Sleep(time.Duration(5) * time.Second)
 	err = cmd.Wait()
 	return
 }

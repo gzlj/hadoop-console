@@ -209,6 +209,7 @@ func QueryTasksByCluster(c *gin.Context) {
 		response global.Response
 		id       int
 		err      error
+		limit int
 	)
 
 	id, err = strconv.Atoi(c.Query("cid"))
@@ -217,7 +218,11 @@ func QueryTasksByCluster(c *gin.Context) {
 		c.JSON(200, response)
 		return
 	}
-	tasks, _ := cluster.ListTasksByCluster(uint(id))
+	limit, err = strconv.Atoi(c.Query("limit"))
+	if err != nil || limit == 0 {
+		limit = 15
+	}
+	tasks, _ := cluster.ListLatestTasksByClusterLimit(uint(id), uint(limit))
 	response = global.BuildResponse(200, "OK", tasks)
 	c.JSON(200, response)
 }
@@ -259,6 +264,30 @@ func QueryLogByTask(c *gin.Context){
 	c.JSON(200, response)
 }
 
+//QueryServiceDetail
+func QueryServiceDetail(c *gin.Context){
+	var (
+		response global.Response
+		sid       int
+		err      error
+		detail *module.ServiceDetail
+	)
+	sid, err = strconv.Atoi(c.Query("sid"))
+	if err != nil {
+		response = global.BuildResponse(400, "Please specify service id.", nil)
+		c.JSON(200, response)
+		return
+	}
+	detail, err = cluster.QueryServiceDetail(uint(sid))
+	if err != nil {
+		response = global.BuildResponse(500, err.Error(), nil)
+		c.JSON(200, response)
+		return
+	}
+	response = global.BuildResponse(200, "OK", detail)
+	c.JSON(200, response)
+}
+
 func AddService(c *gin.Context){
 	/*
 	var (
@@ -270,8 +299,9 @@ func AddService(c *gin.Context){
 	if err = c.ShouldBindJSON(&dto); err != nil {
 	 */
 	var (
-		config module.ClusteredHbaseConfig
+		config module.ClusteredServiceConfig
 		err      error
+		s *db.Service
 		response global.Response
 	)
 	if err = c.ShouldBindJSON(&config); err != nil {
@@ -279,35 +309,118 @@ func AddService(c *gin.Context){
 		c.JSON(200, response)
 		return
 	}
-	log.Println("config:",config)
-	err = cluster.AddService(config)
+	//log.Println("config:",config)
+	s, err = cluster.AddService(config)
 	if err != nil {
 		response = global.BuildResponse(500, err.Error(), nil)
 		c.JSON(200, response)
 		return
 	}
 
-	// go start to install service
-
-	response = global.BuildResponse(200, "OK", config)
+	// go start to install service in backgroud
+	go cluster.InitService(s)
+	response = global.BuildResponse(200, "OK", nil)
 	c.JSON(200, response)
 }
 
-func TestStarService(c *gin.Context) {
+func InitService(c *gin.Context) {
+	var (
+		response global.Response
+		//cid       int
+		sid       int
+		s *db.Service
+		err      error
+	)
+	sid, err = strconv.Atoi(c.Query("sid"))
+	s, err = cluster.QueryServiceById(uint(sid))
+	if err != nil {
+		response = global.BuildResponse(404, "Service Not found", nil)
+		c.JSON(200, response)
+	}
+	go cluster.InitService(s)
+	response = global.BuildResponse(200, "OK", nil)
+	c.JSON(200, response)
+}
 
+
+func QueryService(c *gin.Context) {
+	var (
+		response global.Response
+		//cid       int
+		sid       int
+		s *db.Service
+		err      error
+	)
+	sid, err = strconv.Atoi(c.Query("sid"))
+	s, err = cluster.QueryServiceById(uint(sid))
+	if err != nil {
+		response = global.BuildResponse(404, "Service Not found", nil)
+		c.JSON(200, response)
+	}
+	go cluster.InitService(s)
+	response = global.BuildResponse(200, "OK", nil)
+	c.JSON(200, response)
+}
+
+func ListServiceByCluster(c *gin.Context) {
 	var (
 		response global.Response
 		cid       int
-		sid       int
 		err      error
+		ss []*db.Service
+		dto *db.ServiceDto
+		dtos []*db.ServiceDto
 	)
 	cid, err = strconv.Atoi(c.Query("cid"))
-	sid, err = strconv.Atoi(c.Query("sid"))
-
-	lines, err := cluster.GenerateHostsFileByCluster(uint(cid), uint(sid))
 	if err != nil {
-		response = global.BuildResponse(400, "ERROR", lines)
+		response = global.BuildResponse(400, "Please specify cluster id.", nil)
+		c.JSON(200, response)
+		return
 	}
-	response = global.BuildResponse(200, "OK", lines)
+
+
+	ss, err = cluster.GetServicesByCluster(uint(cid))
+	if err != nil {
+		response = global.BuildResponse(500, err.Error(), nil)
+		c.JSON(200, response)
+		return
+	}
+
+	for _, s := range ss {
+		dto, err  = s.ToDto()
+		if err != nil {
+			continue
+		}
+		dtos = append(dtos, dto)
+	}
+	response = global.BuildResponse(200, "OK", dtos)
+	c.JSON(200, response)
+	/*
+	func GetServicesByCluster(cid uint) (ss []*db.Service, err error) {
+	ss, err = db.GetServiceByClusterId(cid)
+	return
+}
+
+	 */
+
+
+
+}
+
+func GetHostsFile(c *gin.Context) {
+	var (
+		response global.Response
+		sid       int
+		err      error
+		liens []string
+
+	)
+	sid, err = strconv.Atoi(c.Query("sid"))
+	liens, _,err = cluster.GenerateHostsFileByCluster(uint(sid))
+	if err != nil {
+		log.Println(err)
+		response = global.BuildResponse(500, err.Error(), liens)
+	}
+	response = global.BuildResponse(200, "OK", liens)
 	c.JSON(200, response)
 }
