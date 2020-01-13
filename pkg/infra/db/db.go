@@ -255,6 +255,13 @@ func QueryLatestTasksByClusterIdLimit(id, limit uint) (tasks []*Task){
 
 }
 
+func QueryLatestTasksByServiceIdLimit(sid, limit uint) (tasks []*Task){
+	//.Limit(limit)
+	G_db.Order("created_at DESC").Where("sid = ? AND removed = ?", sid, "0").Limit(limit).Find(&tasks)
+	return
+
+}
+
 
 func AddService(s *Service) (err error) {
 	err =G_db.Create(s).Error

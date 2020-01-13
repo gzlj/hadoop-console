@@ -6,6 +6,7 @@ import (
 	"github.com/gzlj/hadoop-console/pkg/handler"
 	"github.com/gzlj/hadoop-console/pkg/infra/cluster"
 	"github.com/gzlj/hadoop-console/pkg/infra/db"
+	"log"
 	"os"
 	"runtime"
 	"strconv"
@@ -60,7 +61,8 @@ func init() {
 	}
 	global.InitConfig(serverPort, mysqlHost, mysqlPort, mysqlUser, mysqlPassword, syncToDbSeconds)
 	db.InitDb()
-	cluster.SyncClusterFromDb()
+	log.Println("cluster.ClusterRuntimeInfos: ", cluster.ClusterRuntimeInfos)
+	//cluster.SyncClusterFromDb()
 }
 
 func (s *APIServer) registryApi() {
@@ -68,9 +70,10 @@ func (s *APIServer) registryApi() {
 }
 
 func registryBasicApis(r *gin.Engine) {
-	r.GET("/status", handler.HandlerGetClusterInfo)
+	r.GET("/cluster/status", handler.HandlerGetClusterInfo)
 	r.POST("/clusters", handler.HandlerCreateCluster)
 	r.GET("/clusters", handler.HandlerListCluster)
+	r.GET("/clusters/get", handler.HandlerQueryCluster)
 	r.POST("/heartbeat", handler.HandlerHeartBeat)
 	r.POST("/cluster/init", handler.HandlerInitHdfs)
 	r.GET("/cluster/log", handler.QueryJobLog)

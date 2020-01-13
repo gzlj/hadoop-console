@@ -90,6 +90,22 @@ func ListClusters()(dtos []*db.ClusterDto, err error){
 	return
 }
 
+func QueryClusterById(id uint)(dto *db.ClusterDto, err error){
+	var (
+		c *db.Cluster
+	)
+	c, err = db.QueryClusterById(int(id))
+	if err != nil {
+		return
+	}
+	dto, err  = c.ToDto()
+	//log.Printf("dto:", *dto)
+	return
+}
+
+
+
+
 func ListTasksByCluster(cid uint) (dtos []*db.TaskDto, err error) {
 	var (
 		tasks []*db.Task
@@ -134,7 +150,32 @@ func ListLatestTasksByClusterLimit(cid, limit uint) (dtos []*db.TaskDto, err err
 	return
 }
 
+func ListLatestTasksByServiceIdLimit(sid, limit uint) (dtos []*db.TaskDto, err error) {
+	var (
+		tasks []*db.Task
+		t *db.Task
+		dto *db.TaskDto
+	)
 
+	//QueryLatestTasksByClusterIdLimit
+	log.Println("sid:", sid)
+	tasks = db.QueryLatestTasksByServiceIdLimit(sid, limit)
+	log.Println("tasks:", tasks)
+	//tasks = db.QueryLatestTasksByClusterIdLimit(cid, limit)
+	//tasks = db.QueryTasksByClusterId(cid)
+	for _,t = range tasks {
+		dto, err = t.ToDto()
+		if err != nil {
+			continue
+		}
+		dtos = append(dtos, dto)
+	}
+	//sort.Reverse(db.TaskList(dtos))
+	//sort.Sort(db.TaskList(dtos))
+	return
+}
+
+/*
 func SyncClusterFromDb() (err error){
 	//ClusterRuntimeInfos = make(map[string]module.ClusterRuntimeInfo)
 	var (
@@ -181,7 +222,7 @@ func SyncClusterFromDb() (err error){
 		}
 	}
 	return
-}
+}*/
 
 func SyncFromHeartBeat() {
 	for hb := range HbChan {
@@ -190,61 +231,65 @@ func SyncFromHeartBeat() {
 }
 
 func syncFromHeartBeat(hb module.NodeHeartBeat) {
+
+	log.Println("accept hb: ----->", hb.Hostname)
+	log.Println("accept hb: ----->", hb.RunningComponents)
+	hb.RunningComponents = util.RemoveDuplicate(hb.RunningComponents)
+
 	clusterInfo, exists := ClusterRuntimeInfos[hb.Cluster]
 	if ! exists {
-		log.Println("Cluster not exists: ", hb.Cluster)
+		var nodes []module.ClusterNodeInfo
+		n := module.ClusterNodeInfo{
+			LastKnown : module.Time(time.Now()),
+			RunningComponents: hb.RunningComponents,
+			State: "Ready",
+		}
+		n.Hostname = hb.Hostname
+		nodes = append(nodes, n)
+		clusterInfo = module.ClusterRuntimeInfo{
+			ClusterName: hb.Cluster,
+			Nodes: nodes,
+		}
+		ClusterRuntimeInfos[hb.Cluster] = clusterInfo
+		log.Println("insert into memory:", ClusterRuntimeInfos[hb.Cluster])
+		//log.Println("Cluster not exists: ", hb.Cluster)
 		return
 	}
+
+	found := false
 	nodes := clusterInfo.Nodes
 	for i, _ := range nodes {
+		//log.Println("already node: ", nodes[i].Hostname)
+		//log.Println("nodes[i].Hostname: ", nodes[i].Hostname)
+		//log.Println("hb.Hostname: ", hb.Hostname)
 		if nodes[i].Hostname == hb.Hostname {
+			//log.Println("hb.Hostname:  ->", hb.Hostname)
+			//log.Println("nodes[i].Hostname == hb.Hostname:  ->", true)
+			//log.Println("hb.RunningComponents", hb.RunningComponents)
+			log.Println("hb.RunningComponents: ", hb.RunningComponents)
 			nodes[i].RunningComponents = hb.RunningComponents
 			nodes[i].LastKnown = module.Time(time.Now())
 			nodes[i].State = "Ready"
-
-			/*var components []module.ComponentStatus
-
-			//calculate component
-			for _, r := range nodes[i].Roles {
-
-
-
-
-				switch r {
-			case global.ROLE_DATANODE:
-
-			case global.ROLE_ZOOKEEPER_SERVER_1:
-			case global.ROLE_ZOOKEEPER_SERVER_2:
-			case global.ROLE_ZOOKEEPER_SERVER_3:
-			case global.ROLE_JOURNALNODE_1:
-
-			case global.ROLE_JOURNALNODE_2:
-
-			case global.ROLE_JOURNALNODE_3:
-
-			case global.ROLE_NAMENODE_1:
-
-			case global.ROLE_NAMENODE_2:
-
-			case global.ROLE_RESOURCE_MANAGER_1:
-
-			case global.ROLE_RESOURCE_MANAGER_2:
-
-			case global.ROLE_HBASE_MASTER:
-				ansibleConfig.HbaseMasters = append(ansibleConfig.HbaseMasters, module.HostnameIp{
-					Hostname: node.Hostname,
-					Ip: node.Ip,
-				})
-			case global.ROLE_HBASE_REGION_SERVER:
-				ansibleConfig.HbaseRegionservers = append(ansibleConfig.HbaseRegionservers, module.HostnameIp{
-					Hostname: node.Hostname,
-					Ip: node.Ip,
-				})
-
-			}*/
-
+			found = true
+			break
 		}
 	}
+	if !found {
+		//log.Println("Not found .insert into memory:", hb.Hostname)
+		log.Println("Not found .hb.RunningComponents: ", hb.RunningComponents)
+		n := module.ClusterNodeInfo{
+			LastKnown : module.Time(time.Now()),
+			RunningComponents: hb.RunningComponents,
+			State: "Ready",
+		}
+		n.Hostname = hb.Hostname
+		clusterInfo.Nodes = append(clusterInfo.Nodes, n)
+		ClusterRuntimeInfos[hb.Cluster] = clusterInfo
+	}
+
+	//log.Println("clusterInfo.Nodes: ",clusterInfo.Nodes)
+	//log.Println("clusterInfo.Nodes for : ",hb.Cluster)
+	log.Println("clusterInfo.Nodes: ",ClusterRuntimeInfos[hb.Cluster])
 }
 
 func CalculateNodeStatus(){
@@ -554,7 +599,7 @@ func AddTaskToDb(clusterId, servcieId uint, taskName, status, message string) (t
 	var (
 		count  int
 	)
-	db.G_db.Model(db.Task{}).Where("name = ? AND removed = ?", taskName, "0").Not("status", []string{"Exited", "Failed"}).Count(&count)
+	db.G_db.Model(db.Task{}).Where("cid = ? AND name = ? AND removed = ?", clusterId, taskName, "0").Not("status", []string{"Exited", "Failed"}).Count(&count)
 
 	if count > 0  {
 		err = errors.New("Running Task already exists: "+  taskName)
@@ -711,6 +756,7 @@ func RunSshByCluster(c db.Cluster) (err error) {
 	// insert ssh task record for cluster
 	tid, err = AddTaskToDb(c.ID, 0, "hadoop-ssh", "Running", "")
 	if err != nil {
+		log.Println("err: ", err)
 		log.Println("Inserting ssh task record failed for cluster:", c.Name)
 		return
 	}
@@ -1162,6 +1208,7 @@ func QueryServiceDetail(sid uint) (config *module.ServiceDetail, err error){
 
 	var (
 		s *db.Service
+		cluster *db.Cluster
 	)
 	s , err = QueryServiceById(sid)
 	if err != nil {
@@ -1172,12 +1219,140 @@ func QueryServiceDetail(sid uint) (config *module.ServiceDetail, err error){
 	if err != nil {
 		return
 	}
+	//log.Println("roleToHosts:", roleToHosts)
 	c := module.ServiceDetail{}
 	c.Id =  int(s.ID)
 	c.Cid = int(s.Cid)
 	c.Name = s.Name
 	c.RoleToHosts = roleToHosts
+	//log.Println("ServiceDetail: ->>>>>>>>", c)
+	// end point
+	cluster, err = db.QueryClusterById(int(s.Cid))
+	if err != nil {
+		log.Println("Cannot find cluster for service:", s.Name)
+		return
+	}
+	eps := GetEndpoints(cluster.Name, s.Name, roleToHosts)
+	c.Endpoints = eps
 	config = &c
+	return
+}
+
+func GetEndpoints(cluster, service string, m map[string][]module.HostnameIp) (eps map[string][]module.Endpoint){
+	var (
+		info module.ClusterRuntimeInfo
+		nodes       []module.ClusterNodeInfo
+		exists bool
+		result = make(map[string][]module.Endpoint)
+	)
+
+	info, exists = ClusterRuntimeInfos[cluster]
+	if ! exists {
+		return
+	}
+	nodes = info.Nodes
+
+
+	for name, hosts := range m {
+		var tmpEps  []module.Endpoint
+		switch name {
+		case "nodeManagers":
+			for _, h := range hosts {
+				ep  :=module.Endpoint{
+				}
+				ep.Hostname = h.Hostname
+				ep.Ip = h.Ip
+				for _, n := range nodes {
+					if n.Hostname == h.Hostname {
+						cs := n.RunningComponents
+						for _, c := range cs {
+							if c == "NodeManager" {
+								ep.Status = "Running"
+								break
+							}
+						}
+
+					}
+				}
+				tmpEps = append(tmpEps, ep)
+			}
+		case "resourceManagers":
+			for _, h := range hosts {
+				ep  :=module.Endpoint{
+				}
+				ep.Hostname = h.Hostname
+				ep.Ip = h.Ip
+				for _, n := range nodes {
+					if n.Hostname == h.Hostname {
+						cs := n.RunningComponents
+						for _, c := range cs {
+							if c == "ResourceManager" {
+								ep.Status = "Running"
+								break
+							}
+						}
+
+					}
+				}
+				tmpEps = append(tmpEps, ep)
+			}
+
+			//dataNodes
+		case "dataNodes":
+			for _, h := range hosts {
+				ep  :=module.Endpoint{
+				}
+				ep.Hostname = h.Hostname
+				ep.Ip = h.Ip
+				for _, n := range nodes {
+					if n.Hostname == h.Hostname {
+						cs := n.RunningComponents
+						for _, c := range cs {
+							if c == "DataNode" {
+								ep.Status = "Running"
+								break
+							}
+						}
+					}
+				}
+				if ep.Status == "" {
+					ep.Status = "Stopped"
+				}
+				tmpEps = append(tmpEps, ep)
+			}
+
+			//nameNodes
+		case "nameNodes":
+			for _, h := range hosts {
+				ep  :=module.Endpoint{
+				}
+				ep.Hostname = h.Hostname
+				ep.Ip = h.Ip
+				for _, n := range nodes {
+					if n.Hostname == h.Hostname {
+						cs := n.RunningComponents
+						for _, c := range cs {
+							if c == "NameNode" {
+								ep.Status = "Running"
+								break
+							}
+						}
+					}
+				}
+				if ep.Status == "" {
+					ep.Status = "Stopped"
+				}
+				tmpEps = append(tmpEps, ep)
+			}
+		case "zookeepers":
+
+
+		}
+		result[name] = tmpEps
+	}
+	eps = result
+
+
 	return
 }
 

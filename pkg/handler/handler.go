@@ -20,12 +20,31 @@ func HandlerGetClusterInfo(c *gin.Context) {
 
 	//cluster name
 	var (
-		//cluster string
+		cname string
 		response global.Response
 		//runtimeInfo module.ClusterRuntimeInfo
+		err error
+		id int
+		dto *db.ClusterDto
+		info module.ClusterRuntimeInfo
 	)
+	id, err = strconv.Atoi(c.Query("id"))
+	dto, err = cluster.QueryClusterById(uint(id))
+	if err != nil {
+		response = global.BuildResponse(400, err.Error(), nil)
+		c.JSON(200, response)
+	}
 
-	response = global.BuildResponse(200, "ok", cluster.ClusterRuntimeInfos)
+	cname = dto.Name
+	log.Println("cname:", cname)
+	info = cluster.ClusterRuntimeInfos[cname]
+	log.Println(cluster.ClusterRuntimeInfos[cname])
+	if info.ClusterName == "" {
+		response = global.BuildResponse(200, "ok", nil)
+	} else {
+		response = global.BuildResponse(200, "ok", info)
+	}
+
 	c.JSON(200, response)
 
 }
@@ -67,6 +86,29 @@ func HandlerCreateCluster(c *gin.Context) {
 	go cluster.RunSshByCluster(hadoopCluster)
 
 	response = global.BuildResponse(200, "OK", nil)
+	c.JSON(200, response)
+}
+
+func HandlerQueryCluster(c *gin.Context) {
+	var (
+		response global.Response
+		dto     *db.ClusterDto
+		err      error
+		id       int
+	)
+	id, err = strconv.Atoi(c.Query("id"))
+	if err != nil {
+		response = global.BuildResponse(400, "Please specify cluster id.", nil)
+		c.JSON(200, response)
+		return
+	}
+	dto, err = cluster.QueryClusterById(uint(id))
+	if err != nil {
+		response = global.BuildResponse(500, err.Error(), nil)
+		c.JSON(200, response)
+		return
+	}
+	response = global.BuildResponse(200, "OK", dto)
 	c.JSON(200, response)
 }
 
@@ -207,12 +249,55 @@ func QueryTasksByCluster(c *gin.Context) {
 
 	var (
 		response global.Response
+		cid      int
+		sid      int
+		err      error
+		limit    int
+		tasks []*db.TaskDto
+	)
+
+	limit, err = strconv.Atoi(c.Query("limit"))
+	if err != nil || limit == 0 {
+		limit = 15
+	}
+
+	sid, err = strconv.Atoi(c.Query("sid"))
+	if err == nil {
+		tasks, err = cluster.ListLatestTasksByServiceIdLimit(uint(sid), uint(limit))
+		if err != nil {
+			response = global.BuildResponse(500, err.Error(), nil)
+		} else {
+			response = global.BuildResponse(200, "OK", tasks)
+		}
+		c.JSON(200, response)
+		return
+	}
+	cid, err = strconv.Atoi(c.Query("cid"))
+	if err != nil {
+		response = global.BuildResponse(400, "Please specify cluster cid.", nil)
+		c.JSON(200, response)
+		return
+	}
+	limit, err = strconv.Atoi(c.Query("limit"))
+	if err != nil || limit == 0 {
+		limit = 15
+	}
+	tasks, _ = cluster.ListLatestTasksByClusterLimit(uint(cid), uint(limit))
+	response = global.BuildResponse(200, "OK", tasks)
+	c.JSON(200, response)
+}
+
+//ListLatestTasksByServiceIdLimit
+func QueryTasksByService(c *gin.Context) {
+
+	var (
+		response global.Response
 		id       int
 		err      error
 		limit int
 	)
 
-	id, err = strconv.Atoi(c.Query("cid"))
+	id, err = strconv.Atoi(c.Query("sid"))
 	if err != nil {
 		response = global.BuildResponse(400, "Please specify cluster id.", nil)
 		c.JSON(200, response)
@@ -222,10 +307,12 @@ func QueryTasksByCluster(c *gin.Context) {
 	if err != nil || limit == 0 {
 		limit = 15
 	}
-	tasks, _ := cluster.ListLatestTasksByClusterLimit(uint(id), uint(limit))
+	tasks, _ := cluster.ListLatestTasksByServiceIdLimit(uint(id), uint(limit))
 	response = global.BuildResponse(200, "OK", tasks)
 	c.JSON(200, response)
 }
+
+
 
 func QueryLogByTask(c *gin.Context){
 

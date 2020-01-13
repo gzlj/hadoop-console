@@ -27,8 +27,8 @@ type ClusterConfig struct {
 }
 
 type HostnameIp struct {
-	Hostname string `json:"hostname"`
-	Ip       string `json:"ip"`
+	Hostname string `json:"hostname,omitempty"`
+	Ip       string `json:"ip,omitempty"`
 }
 
 type HostIpPort struct {
@@ -38,7 +38,7 @@ type HostIpPort struct {
 
 type NodeRole struct {
 	HostnameIp
-	Roles []string `json:"roles"`
+	Roles []string `json:"roles,omitempty"`
 }
 
 type NodeStatus struct {
@@ -71,6 +71,7 @@ type ClusteredServiceConfig struct {
 
 type ServiceDetail struct {
 	ClusteredServiceConfig
+	Endpoints map[string][]Endpoint `json:"endpoints"`
 }
 
 
@@ -93,9 +94,9 @@ type HbaseConfig struct {
 }
 
 type Endpoint struct {
-	Name string
+	Name string //`json:"name,omitempty"`
 	HostnameIp
-	port int
+	//port int
 	Status string
 }
 
